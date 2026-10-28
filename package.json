@@ -1,0 +1,20 @@
+{
+  "name": "tavern-dice",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tavern dice game (Farkle-style) with special dice",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@fontsource/alegreya": "^5.1.0",
+    "@fontsource/cinzel": "^5.1.0",
+    "@fontsource/grenze-gotisch": "^5.1.0",
+    "@fontsource/im-fell-english": "^5.1.0",
+    "cannon-es": "^0.20.0",
+    "esbuild": "^0.24.0",
+    "subset-font": "^2.3.0",
+    "three": "^0.170.0"
+  }
+}

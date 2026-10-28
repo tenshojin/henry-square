@@ -35,15 +35,19 @@ async function main() {
 
   const stage = new Stage(document.getElementById('app'));
   stage.paused = true; // 着色器编译完之前先不渲染，避免主线程卡住
-  stage.camera.position.set(224, 42, 66);
-  stage.camera.lookAt(150, 31, 66);
+  stage.camera.position.set(0, 42, 205);
+  stage.camera.lookAt(0, 30, 120);
   mark('stage');
   ui.setLoading(0.1);
   await nextFrame();
-  const tav = buildTavern(stage.scene, stage.renderer);
+  // 黑板上的粉笔字要用网页字体，先等字体加载好（最多等 1.5 秒）
+  await Promise.race([document.fonts?.ready, new Promise((r) => setTimeout(r, 1500))]);
+  const tav = buildTavern(stage.scene, stage.renderer, { camera: stage.camera });
   tav.updaters.forEach((fn) => stage.add(fn));
   const game = new Game(stage, ui, audio);
   game.tavern = tav;
+  // 对手的骰盅一离开桌面，对面那个年轻人就伸手握住它
+  tav.crowd?.setOpponentCup(game.cups[1], game.cupRest[1]);
   mark('tavern');
   ui.setLoading(0.3);
   await nextFrame();

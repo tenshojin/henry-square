@@ -40,9 +40,9 @@ function dotRing(ctx, radius, n, r) {
   }
 }
 
-function drawCrown(ctx, s) {
+export function drawCrown(ctx, s, cx = C, cy = C + 4) {
   ctx.save();
-  ctx.translate(C, C + 4);
+  ctx.translate(cx, cy);
   ctx.scale(s, s);
   ctx.beginPath();
   // 王冠：三朵百合尖 + 冠圈
@@ -69,9 +69,9 @@ function drawCrown(ctx, s) {
 }
 
 // 简化的立狮：头朝左、前爪扬起、双尾上翘，头戴小冠
-function drawLion(ctx, s) {
+export function drawLion(ctx, s, cx = C, cy = C + 2) {
   ctx.save();
-  ctx.translate(C, C + 2);
+  ctx.translate(cx, cy);
   ctx.scale(s, s);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';

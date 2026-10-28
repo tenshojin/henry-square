@@ -208,6 +208,11 @@ const CUP_FLOOR = 0.55; // 内底高度
 export const CUP_TOP = 4.0;
 const CUP_WALL = 0.3;
 const COLLAR_H = 1.6; // 摇盅时盅口上方看不见的围领高度
+// 骰子进盅时缩小，盅里翻滚空间更大；倒出盅口后在空中用 GROW_T 秒长回原大小再落盘
+export const DIE_CUP_SCALE = 0.68;
+const GROW_T = 0.14;
+// 骰盅回放每帧每颗骰子 8 个数：位置 xyz、四元数 xyzw、缩放
+export const CUP_STRIDE = 8;
 
 // 生成一次投掷的骰盅动作计划
 export function makeCupPlan({ base, side, n, rnd = Math.random }) {
@@ -301,7 +306,51 @@ export function simulateCupThrow(n, plan, rnd = Math.random) {
     if (r.ok) return r;
     if (!best || r.badness < best.badness) best = r;
   }
+  settleCupFrames(best, n);
   return best;
+}
+
+// 极少数十次都没摆平的情况：末尾补 14 帧，把骰子挪进盘里、放平、恢复原大小（互相太近就排成两行）
+function settleCupFrames(r, n) {
+  const S = CUP_STRIDE;
+  const last = r.frames[r.frames.length - 1];
+  const fixed = new Float32Array(last);
+  const q = new THREE.Quaternion();
+  const pos = [];
+  for (let i = 0; i < n; i++) {
+    pos.push([THREE.MathUtils.clamp(last[i * S], TRAY.minX + 0.8, TRAY.maxX - 0.8), THREE.MathUtils.clamp(last[i * S + 2], TRAY.minZ + 0.8, TRAY.maxZ - 0.8)]);
+  }
+  const crowded = pos.some((a, i) => pos.some((b, j) => j > i && Math.hypot(a[0] - b[0], a[1] - b[1]) < 1.3));
+  if (crowded) pos.forEach((p, i) => { p[0] = ((i % 3) - 1) * 2.2; p[1] = (Math.floor(i / 3) - 0.5) * 2.2; });
+  r.tops.length = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * S;
+    q.set(last[o + 3], last[o + 4], last[o + 5], last[o + 6]);
+    const up = VALUE_NORMALS[topFace(q).value].clone().applyQuaternion(q);
+    q.premultiply(new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 1, 0)));
+    fixed.set([pos[i][0], 0.5, pos[i][1], q.x, q.y, q.z, q.w, 1], o);
+    r.tops.push(topFace(q).value);
+  }
+  const qa = new THREE.Quaternion();
+  const qb = new THREE.Quaternion();
+  for (let k = 1; k <= 14; k++) {
+    const t = smooth(k / 14);
+    const f = new Float32Array(last.length);
+    for (let i = 0; i < n; i++) {
+      const o = i * S;
+      qa.set(last[o + 3], last[o + 4], last[o + 5], last[o + 6]);
+      qb.set(fixed[o + 3], fixed[o + 4], fixed[o + 5], fixed[o + 6]);
+      qa.slerp(qb, t);
+      for (const j of [0, 1, 2, 7]) f[o + j] = last[o + j] + (fixed[o + j] - last[o + j]) * t;
+      f[o + 1] += Math.sin(t * Math.PI) * 1.2;
+      f[o + 3] = qa.x;
+      f[o + 4] = qa.y;
+      f[o + 5] = qa.z;
+      f[o + 6] = qa.w;
+    }
+    r.frames.push(f);
+  }
+  r.endT = r.frames.length / 60;
 }
 
 function runCup(n, plan, rnd, attempt) {
@@ -318,10 +367,14 @@ function runCup(n, plan, rnd, attempt) {
   // 骰子出生点：骰盅口正上方
   const mouth = new THREE.Vector3(0, CUP_TOP + 1.3, 0).applyQuaternion(pose.quat).add(pose.pos);
   const bodies = [];
+  const shapes = [];
+  const sc = new Array(n).fill(DIE_CUP_SCALE);
   const spawnPos = [];
   for (let i = 0; i < n; i++) {
     const body = new CANNON.Body({ mass: 1, material: diceMat, linearDamping: 0.06, angularDamping: 0.06 });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)));
+    const shape = new CANNON.Box(new CANNON.Vec3(0.5 * DIE_CUP_SCALE, 0.5 * DIE_CUP_SCALE, 0.5 * DIE_CUP_SCALE));
+    shapes.push(shape);
+    body.addShape(shape);
     body.sleepSpeedLimit = 0.22;
     body.sleepTimeLimit = 0.22;
     const p = mouth.clone().add(new THREE.Vector3((rnd() - 0.5) * 0.7, (rnd() - 0.5) * 0.2, (rnd() - 0.5) * 0.7));
@@ -349,15 +402,17 @@ function runCup(n, plan, rnd, attempt) {
     });
   });
   const record = () => {
-    const arr = new Float32Array(n * 7);
+    const arr = new Float32Array(n * CUP_STRIDE);
     bodies.forEach((b, i) => {
-      arr[i * 7] = b.position.x;
-      arr[i * 7 + 1] = b.position.y;
-      arr[i * 7 + 2] = b.position.z;
-      arr[i * 7 + 3] = b.quaternion.x;
-      arr[i * 7 + 4] = b.quaternion.y;
-      arr[i * 7 + 5] = b.quaternion.z;
-      arr[i * 7 + 6] = b.quaternion.w;
+      const o = i * CUP_STRIDE;
+      arr[o] = b.position.x;
+      arr[o + 1] = b.position.y;
+      arr[o + 2] = b.position.z;
+      arr[o + 3] = b.quaternion.x;
+      arr[o + 4] = b.quaternion.y;
+      arr[o + 5] = b.quaternion.z;
+      arr[o + 6] = b.quaternion.w;
+      arr[o + 7] = sc[i];
     });
     frames.push(arr);
   };
@@ -412,6 +467,23 @@ function runCup(n, plan, rnd, attempt) {
       addTrayWalls(world, wallMat, 6.5, 28);
       highWalls = true;
     }
+    // 开始倒以后，离开盅口的骰子在空中长回原大小（逐步放大，不会和别的东西重叠出冲击）
+    if (t >= plan.tShake1) {
+      const inv = cup.quaternion.conjugate();
+      bodies.forEach((b, i) => {
+        if (sc[i] >= 1) return;
+        const lp = inv.vmult(b.position.vsub(cup.position));
+        if (lp.y < CUP_TOP + 0.2 && Math.hypot(lp.x, lp.z) < CUP_IN_R + CUP_WALL + 0.3) return;
+        sc[i] = Math.min(1, sc[i] + (dt / GROW_T) * (1 - DIE_CUP_SCALE));
+        const h = 0.5 * sc[i];
+        shapes[i].halfExtents.set(h, h, h);
+        shapes[i].updateConvexPolyhedronRepresentation();
+        shapes[i].updateBoundingSphereRadius();
+        b.updateMassProperties();
+        b.updateBoundingRadius();
+        b.aabbNeedsUpdate = true;
+      });
+    }
     // 运动学骰盅：用速度驱动到下一时刻的位姿
     const tt = Math.min(t + dt, plan.tAway1);
     cupPose(plan, tt, target);
@@ -455,6 +527,7 @@ function runCup(n, plan, rnd, attempt) {
     if (b.position.y > 0.62) badness += 3;
     if (b.position.x < TRAY.minX || b.position.x > TRAY.maxX || b.position.z < TRAY.minZ || b.position.z > TRAY.maxZ) badness += 5;
   });
+  if (sc.some((x) => x < 1)) badness += 3;
   const spawnFrames = plan.spawnT.map((st) => Math.ceil(st * 60));
   return { ok: badness === 0, badness, frames, tops, impacts, spawnFrames, spawnPos, endT: frames.length / 60, attempt, lidT };
 }

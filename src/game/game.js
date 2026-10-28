@@ -5,12 +5,12 @@ import { evaluateSelection, bestOfRoll } from './scoring.js';
 import { decide } from './ai.js';
 import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
-import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE } from '../render/physics.js';
+import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
 import { TABLE_Y } from '../render/tavern.js';
 import { GAME_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
 import { i18n } from '../i18n.js';
 
-export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 5000 };
+export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 8000 };
 const ROW_Y = TABLE_Y + 0.5;
 const V3 = THREE.Vector3;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -114,22 +114,22 @@ export class Game {
     if (this.tavern?.door) this.tavern.door.rotation.y = -1.5 * f;
   }
 
-  // 开场：站在门外 → 推开门 → 穿过酒馆看看客人们 → 走到游戏桌前坐下
+  // 开场：站在正门外 → 推开门 → 先看左边吧台、再看正面拱窗、右边壁炉 → 走到游戏桌前坐下
   // 先按时间把镜头轨迹采样成每秒 60 帧，再做两遍平滑（位置和朝向都平滑），保证不会突然急转
   buildIntroPath() {
     const g = GAME_CAM;
     const keys = [
-      [0, [224, 42, 66], [150, 31, 66]],
-      [1.4, [218, 42, 66], [150, 30, 66]],
-      [3.8, [180, 41, 66], [110, 27, 62]],
-      [5.8, [148, 40, 66], [84, 22, 52]],
-      [8.2, [118, 41, 70], [56, 6, 10]],
-      [10.6, [90, 41, 72], [20, 6, -40]],
-      [13.2, [54, 40, 74], [-30, 4, -112]],
-      [15.8, [24, 37, 62], [-40, 2, -60]],
-      [18.4, [-2, 32, 44], [0, -3, -10]],
-      [20.8, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
-      [21.8, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      [0, [0, 42, 205], [0, 30, 120]],
+      [1.4, [0, 42, 198], [0, 30, 120]],
+      [3.8, [0, 41, 160], [0, 28, 70]],
+      [5.8, [0, 41, 116], [-12, 24, 0]],
+      [8.4, [-4, 44, 92], [-70, 26, -80]],
+      [11.0, [4, 44, 78], [-5, 22, -150]],
+      [13.6, [12, 42, 64], [110, 22, -70]],
+      [16.4, [6, 37, 50], [0, 6, -12]],
+      [18.8, [2, 29, 32], [0, -2, -2]],
+      [21.0, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      [22.0, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
     ];
     const n = keys.length;
     const posCurve = new THREE.CatmullRomCurve3(keys.map((k) => new V3(...k[1])), false, 'centripetal');
@@ -293,7 +293,7 @@ export class Game {
     this.clearDice();
     this.difficulty = diff;
     this.target = TARGETS[diff];
-    const offers = Array.from({ length: 6 }, () => (Math.random() < 0.3 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
+    const offers = Array.from({ length: 6 }, () => (Math.random() < 0.5 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
     const aiSpecial = this.makeAiDice(diff);
     const choices = await new Promise((res) => this.ui.showFate(offers, res));
     if (id !== this.matchId) return;
@@ -574,14 +574,15 @@ export class Game {
       const q0 = look.multiply(d.mesh.quaternion.clone().invert());
       d.group.quaternion.copy(q0);
       const A = sim.frames[Math.min(sim.spawnFrames[i], sim.frames.length - 1)];
-      const p1 = new V3(A[i * 7], A[i * 7 + 1], A[i * 7 + 2]);
+      const o = i * CUP_STRIDE;
+      const p1 = new V3(A[o], A[o + 1], A[o + 2]);
       const p0 = d.group.position.clone();
       return {
         p0,
         p1,
         ctrl: p0.clone().lerp(p1, 0.5).add(new V3(0, 4.5, 0)),
         q0,
-        q1: new THREE.Quaternion(A[i * 7 + 3], A[i * 7 + 4], A[i * 7 + 5], A[i * 7 + 6]),
+        q1: new THREE.Quaternion(A[o + 3], A[o + 4], A[o + 5], A[o + 6]),
         t1: plan.spawnT[i],
       };
     });
@@ -639,16 +640,19 @@ export class Game {
             pb.copy(fl.ctrl).lerp(fl.p1, e);
             g.position.copy(pa.lerp(pb, e));
             g.quaternion.slerpQuaternions(fl.q0, fl.q1, e);
+            // 飞向盅口的路上逐渐缩小，进盅时正好是物理里的小骰子
+            g.scale.setScalar(THREE.MathUtils.lerp(1, DIE_CUP_SCALE, e));
             continue;
           }
-          const o = i * 7;
+          const o = i * CUP_STRIDE;
           g.position.set(A[o] + (B[o] - A[o]) * a, A[o + 1] + (B[o + 1] - A[o + 1]) * a, A[o + 2] + (B[o + 2] - A[o + 2]) * a);
           THREE.Quaternion.slerpFlat(qa, 0, A, o + 3, B, o + 3, a);
           g.quaternion.set(qa[0], qa[1], qa[2], qa[3]);
+          g.scale.setScalar(A[o + 7] + (B[o + 7] - A[o + 7]) * a);
         }
         while (ii < impacts.length && impacts[ii].f <= f0 && time >= 0) {
           const im = impacts[ii++];
-          this.audio.dieHit(im.v, mats[im.i], im.kind, THREE.MathUtils.clamp(A[im.i * 7] / 12, -0.9, 0.9));
+          this.audio.dieHit(im.v, mats[im.i], im.kind, THREE.MathUtils.clamp(A[im.i * CUP_STRIDE] / 12, -0.9, 0.9));
         }
         if (f0 >= frames.length - 1 && time >= plan.tAway1 + BACK) {
           off();

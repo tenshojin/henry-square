@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const r = (...p) => path.join(root, ...p);
@@ -129,6 +129,11 @@ async function buildHtml() {
   let html = fs.readFileSync(r('src', 'index.html'), 'utf8');
   html = html.replace('/*__FONTS__*/', () => fonts);
   html = html.replace('/*__STYLE__*/', () => css);
+  // 图标：标签页用 SVG，苹果设备桌面图标用 tools/make_icon.mjs 导出的 PNG
+  const { ICON_DATA_URI } = await import(pathToFileURL(r('src', 'ui', 'icon.js')).href + '?t=' + Date.now());
+  html = html.replace('__ICON_SVG__', () => ICON_DATA_URI);
+  const png = r('assets', 'icon-180.png');
+  html = html.replace('__ICON_PNG__', () => (fs.existsSync(png) ? 'data:image/png;base64,' + fs.readFileSync(png).toString('base64') : ICON_DATA_URI));
   html = html.replace('/*__SCRIPT__*/', () => js.replace(/<\/script/gi, '<\\/script'));
   fs.writeFileSync(outFile, html);
 }

@@ -1,24 +1,39 @@
-// 渲染器、相机、后期（泛光 + 暗角）、主循环与补间动画
+// 渲染器、相机、后期（环境光遮蔽 + 泛光 + 调色 / 暗角 / 颗粒）、主循环与补间动画
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-const VignetteShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uAmount: { value: 1.0 } },
+// 最后一道：在显示空间里调色（对比、饱和、暖高光 / 褐色暗部）+ 暗角 + 胶片颗粒
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uAmount: { value: 1.0 },
+    uContrast: { value: 0.22 },
+    uSat: { value: 0.92 },
+    uLift: { value: new THREE.Vector3(0.035, 0.018, 0.006) },
+    uGain: { value: new THREE.Vector3(1.03, 0.99, 0.93) },
+  },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uTime; uniform float uAmount; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uAmount; uniform float uContrast; uniform float uSat;
+    uniform vec3 uLift; uniform vec3 uGain; varying vec2 vUv;
     float rand(vec2 co){ return fract(sin(dot(co, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
-      vec4 c = texture2D(tDiffuse, vUv);
+      vec3 c = clamp(texture2D(tDiffuse, vUv).rgb, 0.0, 1.0);
+      c = mix(c, c * c * (3.0 - 2.0 * c), uContrast);
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      c = mix(vec3(l), c, uSat);
+      c = c * uGain + uLift * (1.0 - c);
       vec2 d = vUv - 0.5;
-      float v = smoothstep(0.85, 0.25, length(d * vec2(1.15, 1.0)));
-      c.rgb *= mix(1.0, v * 0.85 + 0.15, uAmount);
-      c.rgb += (rand(vUv * 731.0 + uTime) - 0.5) * 0.018;
-      gl_FragColor = c;
+      float v = smoothstep(0.92, 0.28, length(d * vec2(1.12, 1.0)));
+      c *= mix(1.0, v * 0.78 + 0.22, uAmount);
+      c += (rand(vUv * 731.0 + uTime) - 0.5) * 0.022;
+      gl_FragColor = vec4(c, 1.0);
     }`,
 };
 
@@ -50,11 +65,37 @@ export class Stage {
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.55, 1.0);
+    // 环境光遮蔽：半分辨率计算，玻璃、火焰、光柱、毛皮外壳等不参与
+    this.gtao = new GTAOPass(this.scene, this.camera, size.x, size.y);
+    this.gtao.output = GTAOPass.OUTPUT.Default;
+    this.gtao.blendIntensity = 1.0;
+    this.gtao.updateGtaoMaterial({ radius: 7, distanceExponent: 1.4, thickness: 6, scale: 1.25, samples: 16, distanceFallOff: 1, screenSpaceRadius: false });
+    this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+    const gtaoSetSize = this.gtao.setSize.bind(this.gtao);
+    this.gtao.setSize = (w, h) => gtaoSetSize(Math.max(2, Math.round(w / 2)), Math.max(2, Math.round(h / 2)));
+    this.gtao.setSize(size.x, size.y);
+    const scene = this.scene;
+    const cache = new Map();
+    this.gtao.overrideVisibility = () => {
+      scene.traverse((o) => {
+        cache.set(o, o.visible);
+        const m = o.material;
+        if (o.isPoints || o.isLine || o.isSprite || o.userData.noAO || (m && !Array.isArray(m) && m.transparent)) o.visible = false;
+      });
+    };
+    this.gtao.restoreVisibility = () => {
+      cache.forEach((v, o) => (o.visible = v));
+      cache.clear();
+    };
+    this.composer.addPass(this.gtao);
+    // 阈值要高：只让火焰、烛光、窗户发光，不然整个画面都会被泛光糊一层
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.38, 0.45, 1.7);
     this.composer.addPass(this.bloom);
-    this.vignette = new ShaderPass(VignetteShader);
-    this.composer.addPass(this.vignette);
     this.composer.addPass(new OutputPass());
+    this.grade = new ShaderPass(GradeShader);
+    this.composer.addPass(this.grade);
+    // ?hq：锁定最高画质（无头浏览器截图自测用，软件渲染很慢，不锁会被自动降画质）
+    this.quality = { level: location.search.includes('hq') ? -1 : 2, frames: 0, acc: 0 };
 
     this.clock = new THREE.Clock();
     this.time = 0;
@@ -116,8 +157,31 @@ export class Stage {
       this.camera.updateProjectionMatrix();
       this.camera.lookAt(this.camLook);
     }
-    this.vignette.uniforms.uTime.value = t;
+    this.grade.uniforms.uTime.value = t;
     this.composer.render();
+    this.watchQuality(dt);
+  }
+
+  // 开局后统计几秒帧时间：太慢就先关环境光遮蔽，再降分辨率
+  watchQuality(dt) {
+    const q = this.quality;
+    if (q.level <= 0 || this.time < 4) return;
+    q.frames++;
+    q.acc += dt;
+    if (q.frames < 90) return;
+    const avg = q.acc / q.frames;
+    q.frames = 0;
+    q.acc = 0;
+    if (avg < 1 / 40) return;
+    if (q.level === 2) {
+      this.gtao.enabled = false;
+      q.level = 1;
+    } else if (q.level === 1) {
+      this.renderer.setPixelRatio(1);
+      this.composer.setPixelRatio(1);
+      this.resize();
+      q.level = 0;
+    }
   }
 
   tween(duration, fn, ease = easeInOut) {

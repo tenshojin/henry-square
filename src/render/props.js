@@ -93,7 +93,7 @@ export function woodTankard(mats, scale = 1) {
   const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 24), mats.stave);
   body.castShadow = true;
   g.add(body);
-  for (const [y, r] of [[0.45, 1.24], [2.35, 1.15]]) {
+  for (const [y, r] of [[0.45, 1.24], [1.45, 1.19], [2.4, 1.14]]) {
     const hoop = new THREE.Mesh(new THREE.TorusGeometry(r, 0.09, 6, 24), mats.iron);
     hoop.rotation.x = Math.PI / 2;
     hoop.position.y = y;
@@ -123,13 +123,11 @@ export function pewterTankard(mats, scale = 1) {
   handle.rotation.z = -Math.PI / 2;
   handle.position.set(1.15, 1.55, 0);
   g.add(handle);
-  const lid = new THREE.Mesh(new THREE.SphereGeometry(1.18, 20, 8, 0, Math.PI * 2, 0, Math.PI / 4), mats.pewter);
-  lid.position.y = 2.45;
-  lid.scale.y = 0.8;
-  g.add(lid);
-  const thumb = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 6), mats.pewter);
-  thumb.position.set(1.15, 3.25, 0);
-  g.add(thumb);
+  // 设定图里的金属杯是敞口的：杯里一层麦酒
+  const ale = new THREE.Mesh(new THREE.CircleGeometry(0.95, 20), new THREE.MeshStandardMaterial({ color: '#6a3a14', roughness: 0.25 }));
+  ale.rotation.x = -Math.PI / 2;
+  ale.position.y = 2.3;
+  g.add(ale);
   g.scale.setScalar(scale);
   return g;
 }

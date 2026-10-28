@@ -88,7 +88,10 @@ for (const s of steps.steps) {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', code: s.key, key: s.key === 'Space' ? ' ' : s.key, windowsVirtualKeyCode: s.key === 'Space' ? 32 : 13 });
   }
   if (s.shot) {
-    const res = await send('Page.captureScreenshot', { format: 'jpeg', quality: 82 });
+    // clip: [x, y, 宽, 高, 放大倍数] 只截一块并放大，看细节用
+    const opt = { format: 'jpeg', quality: 82 };
+    if (s.clip) opt.clip = { x: s.clip[0], y: s.clip[1], width: s.clip[2], height: s.clip[3], scale: s.clip[4] || 2 };
+    const res = await send('Page.captureScreenshot', opt);
     fs.writeFileSync(path.join(outDir, s.shot), Buffer.from(res.result.data, 'base64'));
     console.log('shot', s.shot);
   }

@@ -1,6 +1,7 @@
 // 界面层（DOM）：开场、菜单、命运之骰、对局 HUD、规则、图鉴、结算
 import { i18n, VERSION } from '../i18n.js';
 import { DICE_BY_ID, SPECIAL_DICE, NORMAL_ID, dieName, dieHint } from '../data/dice.js';
+import { iconSVG } from './icon.js';
 
 const ICONS = {
   music: '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>',
@@ -78,28 +79,25 @@ function flourishSVG() {
     <circle cx="145" cy="13" r="1.8" fill="currentColor"/><circle cx="175" cy="13" r="1.8" fill="currentColor"/>
   </svg>`;
 }
-const CORNER = `<svg viewBox="0 0 60 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round">
-  <path d="M6 52 C 6 26, 26 6, 52 6" stroke-width="1.8"/>
-  <path d="M12 52 C 14 33, 33 14, 52 12" stroke-width="0.9"/>
-  <path d="M17 31 C 13 23, 21 16, 27 20 C 32 24, 27 30, 23 27" stroke-width="1.4"/>
-  <path d="M31 17 C 23 13, 16 21, 20 27" stroke-width="1"/>
-</g><circle cx="8" cy="8" r="2.6" fill="currentColor"/><path d="M8 18 l3 4 -3 4 -3 -4z M18 8 l4 3 -4 3 -4 -3z" fill="currentColor"/></svg>`;
+// 熟铁角件：L 形铁片 + 尖头 + 三颗铜钉
+const CORNER = `<svg viewBox="0 0 42 42" aria-hidden="true">
+  <path d="M3 3 H31 L39 7 L31 11 H11 V31 L7 39 L3 31 Z" fill="url(#iron)" stroke="rgba(0,0,0,.75)" stroke-width="1"/>
+  <path d="M4.5 4.5 H30 M4.5 4.5 V30" stroke="rgba(255,236,200,.22)" stroke-width="1" fill="none"/>
+  <circle cx="7" cy="7" r="2.4" fill="url(#rivet)"/><circle cx="22" cy="7" r="1.8" fill="url(#rivet)"/><circle cx="7" cy="22" r="1.8" fill="url(#rivet)"/>
+</svg>`;
 
-const RIBBON = { turn: 'wine', 'turn-opp': 'slate', big: 'gold', bust: 'ash', hot: 'green', '': 'wine' };
+// 横幅：铁杆上挂一面纹章旗（布面 + 褶皱 + 金色滚边，下沿是燕尾尖）
+const RIBBON = { turn: 'wine', 'turn-opp': 'navy', big: 'gold', bust: 'ash', hot: 'green', '': 'wine' };
 function ribbonSVG(kind) {
   const c = RIBBON[kind] || 'wine';
-  const dark = { wine: '#5a140a', slate: '#1a222c', gold: '#8a6020', ash: '#241e1a', green: '#1c3a18' }[c];
-  const shade = { wine: '#3a0a04', slate: '#0e1218', gold: '#5a3c10', ash: '#141010', green: '#0e220c' }[c];
-  const edge = c === 'gold' ? 'rgba(120,70,10,.55)' : 'rgba(255,214,140,.55)';
-  return `<svg class="ribbon" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
-    <path d="M78 30 L6 30 L32 72 L6 116 L100 116 L100 54 Z" fill="${dark}"/>
-    <path d="M522 30 L594 30 L568 72 L594 116 L500 116 L500 54 Z" fill="${dark}"/>
-    <path d="M100 54 L100 116 L122 104 Z" fill="${shade}"/>
-    <path d="M500 54 L500 116 L478 104 Z" fill="${shade}"/>
-    <path d="M92 12 Q300 -4 508 12 L508 106 Q300 90 92 106 Z" fill="url(#rib-${c})"/>
-    <path d="M100 20 Q300 5 500 20" stroke="${edge}" stroke-width="2" fill="none"/>
-    <path d="M100 98 Q300 83 500 98" stroke="${edge}" stroke-width="2" fill="none"/>
-  </svg>`;
+  const trim = c === 'gold' ? '#6a4410' : '#e6bd6a';
+  const shape = 'M8 0 H592 V100 L300 136 L8 100 Z';
+  return `<svg class="ribbon" viewBox="0 0 600 136" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${shape}" fill="url(#ban-${c})"/>
+    <path d="${shape}" fill="url(#ban-fold)"/>
+    <path d="M22 0 V92 L300 124 L578 92 V0" fill="none" stroke="${trim}" stroke-width="2" vector-effect="non-scaling-stroke" opacity=".85"/>
+    <path d="M30 0 V87 L300 118 L570 87 V0" fill="none" stroke="${trim}" stroke-width="1" vector-effect="non-scaling-stroke" opacity=".45"/>
+  </svg><i class="b-rod"></i>`;
 }
 
 export class UI {
@@ -139,10 +137,6 @@ export class UI {
   ornate(card) {
     for (const c of ['tl', 'tr', 'bl', 'br']) card.appendChild(el('i', 'orn ' + c, CORNER));
   }
-  rollers(card) {
-    card.appendChild(el('i', 'roller at-top'));
-    card.appendChild(el('i', 'roller at-bottom'));
-  }
 
   build() {
     const r = this.root;
@@ -174,8 +168,10 @@ export class UI {
     const render = () => {
       const t = this.t();
       this.splash.innerHTML = '';
-      const box = el('div', 'splash-box');
-      box.insertAdjacentHTML('beforeend', sealSVG('red', 'H', 7));
+      // 只有第一次显示时逐行浮现；加载完成、切换语言时重绘不再重播
+      const box = el('div', 'splash-box' + (this.splashShown ? '' : ' enter'));
+      this.splashShown = true;
+      box.appendChild(el('div', 'emblem', iconSVG('sp')));
       box.appendChild(el('h1', 'title', t.title));
       box.appendChild(el('div', 'subtitle', t.titleSub));
       box.insertAdjacentHTML('beforeend', flourishSVG());
@@ -186,6 +182,14 @@ export class UI {
       this.enterBtn.disabled = !this.loaded;
       this.enterBtn.classList.toggle('hidden', !this.loaded);
       box.appendChild(this.enterBtn);
+      const embers = el('div', 'embers');
+      for (let i = 0; i < 16; i++) {
+        const e = el('i');
+        const d = 7 + ((i * 37) % 9);
+        e.style.cssText = `left:${(i * 61) % 100}%;animation-duration:${d}s;animation-delay:-${((i * 2.3) % d).toFixed(1)}s;--dx:${((i * 53) % 90) - 45}px`;
+        embers.appendChild(e);
+      }
+      this.splash.appendChild(embers);
       const lang = el('button', 'lang-chip', t.langBtn);
       lang.onclick = () => i18n.toggle();
       this.splash.appendChild(lang);
@@ -281,9 +285,9 @@ export class UI {
       const m = this.menuEl;
       m.innerHTML = '';
       const card = el('div', 'paper menu-card');
-      this.rollers(card);
+      this.ornate(card);
       const head = el('div', 'menu-head');
-      head.insertAdjacentHTML('beforeend', sealSVG('red', 'H', 11));
+      head.appendChild(el('div', 'emblem', iconSVG('mn')));
       head.appendChild(el('h1', 'title small', t.title));
       card.appendChild(head);
       card.appendChild(el('div', 'subtitle', t.titleSub));
@@ -462,8 +466,6 @@ export class UI {
     // 回合信息与按钮
     const bottom = el('div', 'bottom');
     const info = el('div', 'turn-info paper small');
-    info.appendChild(el('i', 'rod l'));
-    info.appendChild(el('i', 'rod r'));
     const curName = s.current === 0 ? t.you : s.current === 1 ? t.opponent : '';
     let selLine = '';
     if (s.selection) {
@@ -617,7 +619,7 @@ export class UI {
       const o = this.overEl;
       o.innerHTML = '';
       const card = el('div', 'paper over-card ' + (win ? 'win' : 'lose'));
-      this.rollers(card);
+      this.ornate(card);
       card.insertAdjacentHTML('beforeend', win ? sealSVG('gold', 'crown', 5) : sealSVG('green', 'mug', 6));
       card.appendChild(el('h1', 'title', win ? t.win : t.lose));
       card.insertAdjacentHTML('beforeend', flourishSVG());

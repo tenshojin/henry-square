@@ -393,6 +393,8 @@ export async function buildPeople(scene, world, { audio } = {}) {
   bm.baseSmile = 0.4;
 
   const board = new V3(0, TABLE_Y, 0);
+  // 对面的人瞄骰盘时看高一点：头不至于低到只露头顶，脸还在镜头里
+  const boardUp = new V3(0, TABLE_Y + 0.25 * UNIT, 0);
   const tmp = new V3();
   const pan = (p) => clamp(p.x / 140, -0.8, 0.8);
 
@@ -952,7 +954,7 @@ export async function buildPeople(scene, world, { audio } = {}) {
       if (a === oppA) {
         if (cup && cupW > 0.3) a.lookAt(cup.position, 1, dt, 4);
         else if (moverHead && mover !== a && mover.pos.distanceTo(a.pos) < 2.2 * UNIT) a.lookAt(moverHead, 0.7, dt);
-        else if (glance > 0.55 && glance < 0.78) a.lookAt(board, 0.8, dt);
+        else if (glance > 0.55 && glance < 0.78) a.lookAt(boardUp, 0.8, dt);
         else a.lookAt(cam.position, 0.75, dt);
       } else if (a.state === 'seated') {
         const drinking = a.oneShot && a.oneShot.name === 'drink';

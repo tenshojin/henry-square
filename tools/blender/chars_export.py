@@ -5,7 +5,11 @@ import chars_clothes as C
 EXPORT = r'C:\blender\henry_square\export'
 
 
-def shrink_images(objs, size=1024):
+# AI 人物整身一张颜色贴图（脸也在上面），留 2048；其余（法线、手的皮肤）1024 就够
+BIG = ('_ai',)
+
+
+def shrink_images(objs, size=1024, big=2048):
     seen = set()
     for o in objs:
         for m in o.data.materials:
@@ -14,9 +18,10 @@ def shrink_images(objs, size=1024):
             for n in m.node_tree.nodes:
                 if n.type == 'TEX_IMAGE' and n.image and n.image.name not in seen:
                     seen.add(n.image.name)
+                    lim = big if n.image.name.endswith(BIG) else size
                     w, h = n.image.size
-                    if max(w, h) > size:
-                        k = size / max(w, h)
+                    if max(w, h) > lim:
+                        k = lim / max(w, h)
                         n.image.scale(int(w * k), int(h * k))
 
 

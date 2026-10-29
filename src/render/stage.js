@@ -38,6 +38,8 @@ const GradeShader = {
 };
 
 export const GAME_CAM = { pos: new THREE.Vector3(0, 21.5, 15.8), look: new THREE.Vector3(0, -1.6, 1.0), fov: 42 };
+// 选对手时的机位：坐在桌前、平视对面的座位（下面一截被菜单挡住）
+export const MENU_CAM = { pos: new THREE.Vector3(0, 29, 76), look: new THREE.Vector3(0, 13, -42), fov: 34 };
 
 export class Stage {
   constructor(container) {
@@ -58,7 +60,8 @@ export class Stage {
     this.camera.position.copy(GAME_CAM.pos);
     this.camLook = GAME_CAM.look.clone();
     this.camera.lookAt(this.camLook);
-    this.camMode = 'free'; // 'game' 时有轻微呼吸感
+    this.camMode = 'free'; // 'game' / 'menu' 时停在对应机位，有轻微呼吸感
+    this.curLook = GAME_CAM.look.clone();
     this.baseFov = GAME_CAM.fov;
 
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -99,6 +102,9 @@ export class Stage {
     // ?hq：锁定最高画质（无头浏览器截图自测用，软件渲染很慢，不锁会被自动降画质）
     this.quality = { level: location.search.includes('hq') ? -1 : 2, frames: 0, acc: 0 };
 
+    // 一帧最多推进多少秒（卡顿时不会跳太远）。?maxdt=0.25：无头浏览器自测时帧率很低，让动画跟上真实时间
+    const md = /maxdt=([0-9.]+)/.exec(location.search);
+    this.maxDt = md ? +md[1] : 0.05;
     this.clock = new THREE.Clock();
     this.time = 0;
     this.updaters = new Set();
@@ -139,7 +145,7 @@ export class Stage {
       this.clock.getDelta();
       return;
     }
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const dt = Math.min(this.clock.getDelta(), this.maxDt);
     this.time += dt;
     const t = this.time;
     for (const tw of [...this.tweens]) {
@@ -152,12 +158,14 @@ export class Stage {
       }
     }
     for (const fn of this.updaters) fn(dt, t, this.camera);
-    if (this.camMode === 'game') {
-      const p = GAME_CAM.pos;
+    if (this.camMode === 'game' || this.camMode === 'menu') {
+      const c = this.camMode === 'game' ? GAME_CAM : MENU_CAM;
+      const p = c.pos;
       this.camera.position.set(p.x + Math.sin(t * 0.21) * 0.25, p.y + Math.sin(t * 0.33) * 0.15, p.z + Math.sin(t * 0.17) * 0.2);
-      this.camera.fov = this.baseFov + this.fovFix;
+      this.camera.fov = c.fov + this.fovFix;
       this.camera.updateProjectionMatrix();
-      this.camera.lookAt(this.camLook);
+      this.curLook.copy(c.look);
+      this.camera.lookAt(c.look);
     }
     this.grade.uniforms.uTime.value = t;
     this.composer.render();
@@ -184,6 +192,29 @@ export class Stage {
       this.resize();
       q.level = 0;
     }
+  }
+
+  // 镜头平滑移到菜单机位 / 牌桌机位
+  moveCam(mode, dur = 1.6) {
+    const to = mode === 'game' ? GAME_CAM : MENU_CAM;
+    const p0 = this.camera.position.clone();
+    const l0 = this.curLook.clone();
+    const f0 = this.camera.fov;
+    const look = new THREE.Vector3();
+    this.camMode = 'free';
+    const id = (this.camMoveId = (this.camMoveId || 0) + 1);
+    return this.tween(dur, (k) => {
+      if (id !== this.camMoveId) return;
+      this.camera.position.lerpVectors(p0, to.pos, k);
+      // 视线先走得慢一点，镜头像是抬头 / 低头而不是平移
+      look.lerpVectors(l0, to.look, easeInOut(Math.min(1, k * 1.08)));
+      this.curLook.copy(look);
+      this.camera.fov = f0 + (to.fov + this.fovFix - f0) * k;
+      this.camera.updateProjectionMatrix();
+      this.camera.lookAt(look);
+    }, easeInOut).then(() => {
+      if (id === this.camMoveId) this.camMode = mode;
+    });
   }
 
   tween(duration, fn, ease = easeInOut) {

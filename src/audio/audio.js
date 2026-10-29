@@ -302,6 +302,20 @@ export class AudioEngine {
     this.burst({ t: i * 0.07, freq: rand(900, 1300), q: 2, gain: 0.18, dur: 0.04 });
     this.ping({ t: i * 0.07, freq: 190, dur: 0.05, gain: 0.08 });
   }
+  // 木椅在地板上拖动：几段带共鸣的摩擦声（gain 随距离调小）
+  chairScrape(dur = 0.6, pan = 0, gain = 0.12) {
+    const n = Math.max(3, Math.round(dur / 0.07));
+    for (let i = 0; i < n; i++) {
+      const k = i / n;
+      this.burst({ t: k * dur, freq: rand(380, 620) + 180 * Math.sin(k * 9), q: 4, gain: gain * (0.6 + 0.4 * Math.sin(Math.PI * k)), dur: 0.09, pan, attack: 0.02 });
+    }
+    this.ping({ t: dur * 0.9, freq: 120, dur: 0.08, gain: gain * 0.4, pan });
+  }
+  // 脚步：很轻的闷响，偶尔地板吱一声
+  footstep(pan = 0, gain = 0.05) {
+    this.burst({ freq: rand(140, 220), q: 1.2, gain, dur: 0.06, type: 'lowpass', pan, attack: 0.004 });
+    if (Math.random() < 0.08) this.ping({ t: 0.03, freq: rand(500, 800), dur: 0.12, gain: gain * 0.25, type: 'triangle', pan });
+  }
   click() {
     this.burst({ freq: 1400, q: 3, gain: 0.12, dur: 0.03 });
     this.ping({ freq: 260, dur: 0.04, gain: 0.05 });

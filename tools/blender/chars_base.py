@@ -152,21 +152,21 @@ SPECS = {
     'dicer': dict(
         macro=dict(gender=1.0, age=0.53, muscle=0.66, weight=0.48, height=0.58, proportions=0.75),
         race=dict(caucasian=0.92, asian=0.04, african=0.04),
-        skin='young_caucasian_male', skin_mul=(0.96, 0.85, 0.75), eyes='brown', brows='eyebrow010', lashes='eyelashes01',
-        hair=('short02', '#140b06', '#4a2f1c', 1.2), beard=('grinsegold_beard_sigmund_wip', '#120a05', '#4a3220', 0.8),
+        skin='young_caucasian_male', skin_mul=(0.93, 0.79, 0.67), eyes='brown', brows='eyebrow010', lashes='eyelashes01',
+        hair=('short02', '#160c06', '#5a3a22', 1.15), beard=None, stubble=0.8,
         targets={'head/head-square': 0.35, 'chin/chin-bones-incr': 0.4, 'nose/nose-hump-incr': 0.15},
     ),
     'drinker': dict(
         macro=dict(gender=1.0, age=0.72, muscle=0.62, weight=0.62, height=0.6, proportions=0.6),
         race=dict(caucasian=0.95, asian=0.02, african=0.03),
-        skin='middleage_caucasian_male', skin_mul=(0.93, 0.8, 0.7), eyes='brownlight', brows='eyebrow010', lashes='eyelashes02',
-        hair=('long01', '#0f0a06', '#3e2b1c', 1.3), beard=('grinsegold_beard_sigmund_wip', '#120c08', '#5e5246', 1.0),
+        skin='middleage_caucasian_male', skin_mul=(0.9, 0.75, 0.63), eyes='brownlight', brows='eyebrow010', lashes='eyelashes02',
+        hair=('long01', '#150e08', '#544232', 1.3), beard=('grinsegold_beard_sigmund_wip', '#2a2018', '#8e8070', 0.9), stubble=0.3,
         targets={'nose/nose-hump-incr': 0.4, 'head/head-square': 0.4},
     ),
     'elder': dict(
         macro=dict(gender=1.0, age=0.93, muscle=0.35, weight=0.5, height=0.48, proportions=0.4),
         race=dict(caucasian=0.95, asian=0.02, african=0.03),
-        skin='old_caucasian_male', skin_mul=(0.97, 0.86, 0.78), eyes='grey', brows='eyebrow011', lashes='eyelashes04',
+        skin='old_caucasian_male', skin_mul=(0.93, 0.79, 0.69), eyes='grey', brows='eyebrow011', lashes='eyelashes04',
         hair=('short04', '#9a958c', '#efebe2', 1.0), beard=('rehmanpolanski_beard_viking', '#a8a298', '#f2efe8', 1.0),
         moustache=('rehmanpolanski_moustache_viking', '#a8a298', '#f4f1ea'),
         targets={'nose/nose-scale-depth-incr': 0.3, 'nose/nose-hump-incr': 0.5},
@@ -174,11 +174,109 @@ SPECS = {
     'barmaid': dict(
         macro=dict(gender=0.0, age=0.47, muscle=0.42, weight=0.46, height=0.45, proportions=0.8, cupsize=0.62, firmness=0.6),
         race=dict(caucasian=0.92, asian=0.04, african=0.04),
-        skin='young_caucasian_female', skin_mul=(0.99, 0.9, 0.82), eyes='brown', brows='eyebrow001', lashes='eyelashes03',
+        skin='young_caucasian_female', skin_mul=(0.97, 0.85, 0.75), eyes='brown', brows='eyebrow001', lashes='eyelashes03',
         hair=('ponytail01', '#160c06', '#4e301c', 1.1), beard=None,
         targets={},
     ),
 }
+
+BEARD_TEX = {
+    'grinsegold_beard_sigmund_wip': ('Material_Diffuse_Color1_d.png', 'Material_Diffuse_Color1_hn.png'),
+    'rehmanpolanski_beard_viking': ('BeardViking.png', None),
+    'wdg_scruffy_beard': ('beard2_texture-SMUDGE2.png', None),
+    'culturalibre_faun_beard': ('brown.png', None),
+}
+
+
+def _smooth(a, b, x):
+    k = np.clip((x - a) / (b - a), 0, 1)
+    return k * k * (3 - 2 * k)
+
+
+def paint_stubble(objs, img_name, strength=0.5, seed=3):
+    """在皮肤贴图上画胡茬：按脸上的位置给每个顶点一个权重，在 UV 里逐个三角形画进蒙版，再撒上细密的深色点。"""
+    body, eyes = objs['body'], objs['eyes']
+    img = bpy.data.images[img_name]
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)
+    ev = np.array([v.co[:] for v in eyes.data.vertices], dtype=np.float32)
+    ec = ev.mean(0)
+    me = body.data
+    # 身体的体型还在形态键里（没烘进网格）：关掉修改器求值，拿到真正的顶点位置
+    saved = [(md, md.show_viewport) for md in body.modifiers]
+    for md, _ in saved:
+        md.show_viewport = False
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev_ob = body.evaluated_get(dg)
+    tmp = ev_ob.to_mesh()
+    co = np.empty(len(tmp.vertices) * 3, dtype=np.float32)
+    tmp.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3)
+    ev_ob.to_mesh_clear()
+    for md, vis in saved:
+        md.show_viewport = vis
+    dx, dy, dz = co[:, 0] - ec[0], co[:, 1] - ec[1], co[:, 2] - ec[2]
+    ax = np.abs(dx)
+    z_top = -0.032 - 0.04 * np.clip(1 - (ax - 0.02) / 0.05, 0, 1)
+    wv = _smooth(z_top + 0.01, z_top - 0.008, dz)
+    wv *= _smooth(0.07, 0.045, dy)
+    wv *= _smooth(-0.2, -0.165, dz)
+    wv *= np.where(dz < -0.15, _smooth(0.03, -0.01, dy), 1.0)
+    lips = (ax < 0.03) & (dz > -0.104) & (dz < -0.076) & (dy < -0.085)
+    wv[lips] *= 0.12
+    gi = {g.name: g.index for g in body.vertex_groups}
+    hw = np.zeros(len(co), dtype=np.float32)
+    for v in me.vertices:
+        for g in v.groups:
+            if g.group in (gi.get('head'), gi.get('neck_01')):
+                hw[v.index] += g.weight
+    wv *= np.clip(hw * 2, 0, 1)
+    mask = np.zeros((h, w), dtype=np.float32)
+    uv = me.uv_layers.active.data
+    for p in me.polygons:
+        ids = list(p.vertices)
+        if wv[ids].max() <= 0.01:
+            continue
+        L = list(p.loop_indices)
+        pts = np.array([uv[l].uv[:] for l in L], dtype=np.float64) * [w, h]
+        ws = wv[ids]
+        for tri in ((0, 1, 2), (0, 2, 3)) if len(L) == 4 else ((0, 1, 2),):
+            a, b, c = pts[list(tri)]
+            wa, wb, wc = ws[list(tri)]
+            x0, x1 = int(max(0, np.floor(min(a[0], b[0], c[0])))), int(min(w - 1, np.ceil(max(a[0], b[0], c[0]))))
+            y0, y1 = int(max(0, np.floor(min(a[1], b[1], c[1])))), int(min(h - 1, np.ceil(max(a[1], b[1], c[1]))))
+            if x1 < x0 or y1 < y0:
+                continue
+            yy, xx = np.mgrid[y0:y1 + 1, x0:x1 + 1] + 0.5
+            den = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+            if abs(den) < 1e-9:
+                continue
+            l1 = ((b[1] - c[1]) * (xx - c[0]) + (c[0] - b[0]) * (yy - c[1])) / den
+            l2 = ((c[1] - a[1]) * (xx - c[0]) + (a[0] - c[0]) * (yy - c[1])) / den
+            l3 = 1 - l1 - l2
+            inside = (l1 >= -0.02) & (l2 >= -0.02) & (l3 >= -0.02)
+            val = l1 * wa + l2 * wb + l3 * wc
+            sub = mask[y0:y1 + 1, x0:x1 + 1]
+            np.maximum(sub, np.where(inside, val, 0), out=sub)
+    ys, xs = np.nonzero(mask > 0.001)
+    if not len(ys):
+        return
+    y0, y1, x0, x1 = max(0, ys.min() - 8), min(h, ys.max() + 9), max(0, xs.min() - 8), min(w, xs.max() + 9)
+    m = mask[y0:y1, x0:x1]
+    for _ in range(3):
+        m = (m + np.roll(m, 1, 0) + np.roll(m, -1, 0) + np.roll(m, 1, 1) + np.roll(m, -1, 1)) / 5
+    rng = np.random.default_rng(seed)
+    dots = rng.random(m.shape)
+    dots = (dots > 0.45).astype(np.float32) * 0.7 + 0.3 * rng.random(m.shape)
+    d = np.clip(m * strength * (0.55 + 0.45 * dots), 0, 0.85)[..., None]
+    col = np.array([0.075, 0.05, 0.035], dtype=np.float32)
+    region = px[y0:y1, x0:x1, :3]
+    px[y0:y1, x0:x1, :3] = region * (1 - d) + col * d
+    img.pixels.foreach_set(px.ravel())
+    img.save()
+
 
 # 表情：MPFB 自带的面部动作单元
 EXPRESSIONS = {
@@ -254,12 +352,9 @@ def build_human(name, spec, x_offset=0.0):
     if spec.get('beard'):
         bn, dark, light, gamma = spec['beard']
         beard = add('Clothes', 'clothes/%s/%s.mhclo' % (bn, bn))
-        if 'sigmund' in bn:
-            bsrc = mp('clothes', bn, 'Material_Diffuse_Color1_d.png')
-            nimg = bpy.data.images.load(mp('clothes', bn, 'Material_Diffuse_Color1_hn.png'), check_existing=True)
-        else:
-            bsrc = mp('clothes', bn, 'BeardViking.png')
-            nimg = None
+        dif, nrm = BEARD_TEX[bn]
+        bsrc = mp('clothes', bn, dif)
+        nimg = bpy.data.images.load(mp('clothes', bn, nrm), check_existing=True) if nrm else None
         bimg = recolor(bsrc, name + '_beard', dark, light, gamma)
         set_material(beard, principled(name + '.beard', base=bimg, rough=0.6, normal=nimg, alpha_from_base=True))
         objs['beard'] = beard
@@ -269,6 +364,8 @@ def build_human(name, spec, x_offset=0.0):
         mimg = recolor(mp('clothes', mn, 'MoustacheViking.png'), name + '_moustache', dark, light)
         set_material(mo, principled(name + '.moustache', base=mimg, rough=0.6, alpha_from_base=True))
         objs['moustache'] = mo
+    if spec.get('stubble'):
+        paint_stubble(objs, name + '_skin', spec['stubble'])
     for o in objs.values():
         o['henry_char'] = name
     return objs

@@ -451,6 +451,25 @@ def make_leather(n=512, seed=5, g=64):
     return _save("fab_leather", np.clip(rgb, 0, 1)), _save("fab_leather_n", _normal_from_height(h, 1.6))
 
 
+def make_studded(n=1024, grid=96, seed=7):
+    """铆钉皮革（年轻人的马甲）：深色皮革 + 一格格小铜钉。带颜色，材质里乘白色。"""
+    rng = np.random.default_rng(seed)
+    f1, f2 = worley(n, 64, rng)
+    crack = np.clip((f2 - f1) / 3.0, 0, 1)
+    mott = _periodic_noise(n, 1.4, rng)
+    base = np.array([0.105, 0.07, 0.045]) * (0.85 + 0.12 * crack[..., None] + 0.12 * mott[..., None])
+    y, x = np.mgrid[0:n, 0:n] / n * grid
+    dx = (x % 1.0) - 0.5
+    dy = (y % 1.0) - 0.5
+    r = np.sqrt(dx * dx + dy * dy)
+    stud = np.clip((0.17 - r) / 0.06, 0, 1)
+    dome = np.sqrt(np.clip(1 - (r / 0.17) ** 2, 0, 1))
+    brass = np.array([0.55, 0.4, 0.2]) * (0.6 + 0.5 * dome[..., None])
+    rgb = base * (1 - stud[..., None]) + brass * stud[..., None]
+    h = crack * 0.3 + 0.1 * mott + dome * stud * 2.5
+    return _save('fab_studded', np.clip(rgb, 0, 1)), _save('fab_studded_n', _normal_from_height(h, 2.0))
+
+
 def fabric_material(name, kind, color, rough=0.8, scale=6.0, metallic=0.0, nstr=0.6):
     """可平铺材质：贴图（灰）× 颜色。scale = 每米重复几次（UV 以米为单位）。"""
     m = bpy.data.materials.get(name) or bpy.data.materials.new(name)

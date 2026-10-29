@@ -16,9 +16,9 @@ const STR = {
     close: '合上',
     targetN: (n) => `先到 ${n} 分者胜`,
     diff: {
-      casual: { name: '休闲', who: '醉醺醺的农夫', desc: '喝得半醉，随手乱掷' },
-      novice: { name: '新手', who: '跑腿的学徒', desc: '刚学会规矩，还算谨慎' },
-      regular: { name: '酒馆常客', who: '老练的佣兵', desc: '精于算计，从不手软' },
+      casual: { name: '休闲', who: '忙里偷闲的女店员', desc: '端完这盘酒，陪你随手掷两把' },
+      novice: { name: '新手', who: '贪杯的游侠', desc: '刚学会规矩，还算谨慎' },
+      regular: { name: '酒馆常客', who: '白胡子老酒客', desc: '精于算计，从不手软' },
       king: { name: '斯卡利茨骰子王', who: '传说中的骰子王', desc: '据说从没输过一局' },
     },
     fateTitle: '命运之骰',
@@ -127,9 +127,9 @@ const STR = {
     close: 'Close',
     targetN: (n) => `First to ${n} wins`,
     diff: {
-      casual: { name: 'Casual', who: 'A tipsy farmer', desc: 'Half-drunk and throwing wild' },
-      novice: { name: 'Novice', who: 'An errand boy', desc: 'Knows the rules, plays it safe' },
-      regular: { name: 'Tavern Regular', who: 'A seasoned mercenary', desc: 'Calculating and merciless' },
+      casual: { name: 'Casual', who: 'The barmaid on her break', desc: 'Throws for fun between rounds of ale' },
+      novice: { name: 'Novice', who: 'A thirsty ranger', desc: 'Knows the rules, plays it safe' },
+      regular: { name: 'Tavern Regular', who: 'The white-bearded regular', desc: 'Calculating and merciless' },
       king: { name: 'Dice King of Skalitz', who: 'The legend himself', desc: 'Said never to have lost a game' },
     },
     fateTitle: 'Dice of Fate',
@@ -233,7 +233,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v3.0';
+export const VERSION = 'v3.1';
 
 export const i18n = {
   get lang() {

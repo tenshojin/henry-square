@@ -7,7 +7,8 @@ import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
 import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
 import { TABLE_Y } from '../render/world.js';
-import { GAME_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
+import { MENU_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
+import { OPPONENT_OF } from '../render/people.js';
 import { i18n } from '../i18n.js';
 
 export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 8000 };
@@ -107,17 +108,17 @@ export class Game {
   skipIntro() {
     this.openDoor(1);
     this.audio.setInside(1);
-    this.stage.camMode = 'game';
+    this.stage.camMode = 'menu';
   }
 
   openDoor(f) {
     if (this.tavern?.door) this.tavern.door.rotation.y = -1.5 * f;
   }
 
-  // 开场：站在正门外 → 推开门 → 先看左边吧台、再看正面拱窗、右边壁炉 → 走到游戏桌前坐下
+  // 开场：站在正门外 → 推开门 → 先看左边吧台、再看正面拱窗、右边壁炉 → 走到游戏桌前坐下，看着对面的对手
   // 先按时间把镜头轨迹采样成每秒 60 帧，再做两遍平滑（位置和朝向都平滑），保证不会突然急转
   buildIntroPath() {
-    const g = GAME_CAM;
+    const g = MENU_CAM;
     const keys = [
       // 街上看招牌 → 门开了往里走 → 左看柜台、正看窗和旗、右看壁炉 → 落到桌前
       [0, [0, 46, 380], [0, 52, 147]],
@@ -127,10 +128,9 @@ export class Game {
       [8.8, [-8, 46, 105], [-112, 34, -100]],
       [11.9, [2, 47, 86], [0, 46, -190]],
       [15.0, [16, 45, 70], [160, 36, -70]],
-      [17.8, [6, 40, 56], [0, 10, -20]],
-      [20.2, [2, 30, 32], [0, 0, 0]],
-      [22.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
-      [23.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      [17.8, [8, 36, 68], [30, 18, -40]],
+      [20.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      [21.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
     ];
     const n = keys.length;
     const posCurve = new THREE.CatmullRomCurve3(keys.map((k) => new V3(...k[1])), false, 'centripetal');
@@ -182,7 +182,7 @@ export class Game {
       const a = f - k0;
       st.camera.position.lerpVectors(path.pos[k0], path.pos[k1], a);
       target.lerpVectors(path.dir[k0], path.dir[k1], a).normalize().add(st.camera.position);
-      st.camera.fov = THREE.MathUtils.lerp(56, GAME_CAM.fov + st.fovFix, easeInOut(THREE.MathUtils.clamp((time - (path.T - 4.5)) / 3.5, 0, 1)));
+      st.camera.fov = THREE.MathUtils.lerp(56, MENU_CAM.fov + st.fovFix, easeInOut(THREE.MathUtils.clamp((time - (path.T - 4.5)) / 3.5, 0, 1)));
       st.camera.updateProjectionMatrix();
       st.camera.lookAt(target);
       // 推门
@@ -226,13 +226,24 @@ export class Game {
       });
     });
     this.ui.hideIntro();
-    st.camMode = 'game';
+    st.camMode = 'menu';
   }
 
   // ---------- 菜单与开局 ----------
   showMenu() {
     this.ui.showToolbar(() => this.backToMenu());
-    this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS);
+    this.openMenu();
+  }
+
+  // 选对手的菜单：镜头看向对面；点难度卡片时对面就换人（原来的人起身离开，新的人走过来坐下）
+  openMenu() {
+    if (this.stage.camMode !== 'menu') this.stage.moveCam('menu', 1.8);
+    this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS, (diff) => this.setOpponent(diff));
+  }
+
+  setOpponent(diff, instant = false) {
+    this.difficulty = diff;
+    this.tavern?.crowd?.setOpponent(OPPONENT_OF[diff], instant);
   }
 
   backToMenu() {
@@ -243,7 +254,7 @@ export class Game {
     this.ui.overEl.classList.add('hidden');
     this.clearDice();
     this.players = null;
-    this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS);
+    this.openMenu();
   }
 
   cancelMatch() {
@@ -292,8 +303,9 @@ export class Game {
     this.cancelMatch();
     const id = this.matchId;
     this.clearDice();
-    this.difficulty = diff;
+    this.setOpponent(diff);
     this.target = TARGETS[diff];
+    if (this.stage.camMode !== 'game') this.stage.moveCam('game', 1.7);
     const offers = Array.from({ length: 6 }, () => (Math.random() < 0.5 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
     const aiSpecial = this.makeAiDice(diff);
     const choices = await new Promise((res) => this.ui.showFate(offers, res));
@@ -362,6 +374,11 @@ export class Game {
 
   async runMatch(id) {
     const t = i18n.t;
+    // 对手还在走过来 / 坐下：等他坐稳再开始
+    if (this.tavern?.crowd && !this.tavern.crowd.isReady()) {
+      await this.tavern.crowd.whenReady();
+      this.check(id);
+    }
     let cur = Math.random() < 0.5 ? 0 : 1;
     this.ui.banner(cur === 0 ? t.firstYou : t.firstOpp, '', 'turn', 1600);
     this.audio.coins();
@@ -752,7 +769,7 @@ export class Game {
         this.ui.hideHud();
         this.clearDice();
         this.players = null;
-        this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS);
+        this.openMenu();
       }
     );
   }

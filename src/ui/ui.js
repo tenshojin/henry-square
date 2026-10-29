@@ -273,7 +273,8 @@ export class UI {
   }
 
   // ---------- 菜单（卷轴） ----------
-  showMenu(onStart, current = 'regular', targets = {}) {
+  // 菜单是贴在画面下方的一条：上面露出对面座位，点哪个对手，那个人就走过来坐下
+  showMenu(onStart, current = 'regular', targets = {}, onSelect = null) {
     let sel = current;
     const render = () => {
       const t = this.t();
@@ -283,11 +284,16 @@ export class UI {
       this.ornate(card);
       const head = el('div', 'menu-head');
       head.appendChild(el('div', 'emblem', iconSVG('mn')));
-      head.appendChild(el('h1', 'title small', t.title));
+      const titles = el('div', 'menu-titles');
+      titles.appendChild(el('h1', 'title small', t.title));
+      titles.appendChild(el('div', 'subtitle', t.titleSub));
+      head.appendChild(titles);
+      head.appendChild(el('h3', 'section', t.chooseDiff));
+      const side = el('div', 'menu-side');
+      side.appendChild(this.btn(t.rules, 'small', () => this.showRules()));
+      side.appendChild(this.btn(t.codex, 'small', () => this.showCodex()));
+      head.appendChild(side);
       card.appendChild(head);
-      card.appendChild(el('div', 'subtitle', t.titleSub));
-      card.insertAdjacentHTML('beforeend', flourishSVG());
-      card.appendChild(el('h3', 'section', t.chooseDiff));
       const grid = el('div', 'diff-grid');
       for (const d of ['casual', 'novice', 'regular', 'king']) {
         const info = t.diff[d];
@@ -304,17 +310,16 @@ export class UI {
           sel = d;
           this.audio.select(true);
           grid.querySelectorAll('.diff').forEach((x) => x.classList.toggle('sel', x === c));
+          if (onSelect) onSelect(d);
         };
         grid.appendChild(c);
       }
       card.appendChild(grid);
       const row = el('div', 'menu-actions');
-      row.appendChild(this.btn(t.rules, '', () => this.showRules()));
       row.appendChild(this.btn(t.start, 'primary big', () => {
         this.hideMenu();
         onStart(sel);
       }));
-      row.appendChild(this.btn(t.codex, '', () => this.showCodex()));
       card.appendChild(row);
       card.appendChild(el('div', 'menu-version', VERSION));
       m.appendChild(card);
@@ -322,11 +327,13 @@ export class UI {
     this.menuRender = render;
     this.rerender.add(render);
     render();
+    this.root.classList.add('menu-open');
     this.menuEl.classList.remove('hidden');
     requestAnimationFrame(() => this.menuEl.classList.add('show'));
   }
   hideMenu() {
     this.rerender.delete(this.menuRender);
+    this.root.classList.remove('menu-open');
     this.menuEl.classList.remove('show');
     setTimeout(() => this.menuEl.classList.add('hidden'), 400);
   }

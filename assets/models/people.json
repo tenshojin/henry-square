@@ -1,0 +1,19 @@
+{
+ "dicer": {
+  "walk": 1.0933,
+  "z_sit": 0.5616
+ },
+ "drinker": {
+  "walk": 1.0439,
+  "z_sit": 0.5683
+ },
+ "elder": {
+  "walk": 0.8545,
+  "z_sit": 0.5729
+ },
+ "barmaid": {
+  "walk": 0.849,
+  "walk_tray": 0.6878,
+  "z_sit": 0.5903
+ }
+}

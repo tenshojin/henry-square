@@ -165,6 +165,43 @@ def ladder_chair(x, y, rot, seat_h=0.45, group='table', name='chair'):
     return out
 
 
+def slat_chair(x, y, rot, seat_h=0.45, group='table', name='chair'):
+    """设定图里的木椅：方腿、木板椅面、后腿往上做靠背立柱（略后仰），上下两根横档之间三根竖板，前面和两侧有拉档。
+    局部坐标：人面朝 -Y 坐，靠背在 +Y。"""
+    m = mats()
+    out = []
+    W, D = 0.46, 0.42
+    mw = Matrix.LocRotScale(Vector((x, y, 0)), Euler((0, 0, rot)), None)
+
+    def add(ob, lx, ly, lz, r=(0, 0, 0)):
+        ob.matrix_world = mw @ Matrix.LocRotScale(Vector((lx, ly, lz)), Euler(r), None)
+        out.append(ob)
+    lw = 0.038
+    for sx in (-1, 1):
+        add(U.box(name + '_leg', (lw, lw, seat_h - 0.03), mat=m['oak'], bevel=0.005, group=group, jitter=0.002, seed=3 + sx), sx * (W / 2 - 0.03), -D / 2 + 0.035, (seat_h - 0.03) / 2)
+        # 后腿一直伸上去当靠背立柱，往后仰一点
+        post_h = 1.0
+        add(U.box(name + '_post', (lw, lw * 1.1, post_h), mat=m['oak'], bevel=0.005, group=group, jitter=0.002, seed=5 + sx), sx * (W / 2 - 0.03), D / 2 - 0.035 + 0.035, post_h / 2, (-0.07, 0, 0))
+    # 椅面：三块木板
+    for k in range(3):
+        add(U.box(name + '_seat%d' % k, (W, D / 3 - 0.004, 0.032), mat=m['oak'], bevel=0.005, group=group, jitter=0.0015, seed=11 + k),
+            0, -D / 2 + D / 6 + k * D / 3, seat_h - 0.016)
+    # 靠背：上横档（稍高）、下横档、三根竖板
+    for z, hh in ((0.95, 0.075), (0.6, 0.05)):
+        dy = D / 2 - 0.035 + 0.035 + (z - 0.5) * 0.07
+        add(U.box(name + '_rail', (W - 0.05, 0.026, hh), mat=m['oak'], bevel=0.006, group=group, jitter=0.0015, seed=int(z * 100)), 0, dy, z, (-0.07, 0, 0))
+    for k, sx in enumerate((-0.11, 0.0, 0.11)):
+        add(U.box(name + '_slat%d' % k, (0.052, 0.016, 0.3), mat=m['oak'], bevel=0.004, group=group, jitter=0.0015, seed=21 + k),
+            sx, D / 2 - 0.035 + 0.035 + 0.28 * 0.07, 0.775, (-0.07, 0, 0))
+    # 拉档
+    for z in (0.14, 0.24):
+        add(U.box(name + '_rung', (0.026, D - 0.07, 0.026), mat=m['oak_dark'], bevel=0.004, group=group), W / 2 - 0.03, 0, z)
+        add(U.box(name + '_rung', (0.026, D - 0.07, 0.026), mat=m['oak_dark'], bevel=0.004, group=group), -W / 2 + 0.03, 0, z)
+    add(U.box(name + '_rung', (W - 0.06, 0.026, 0.026), mat=m['oak_dark'], bevel=0.004, group=group), 0, -D / 2 + 0.035, 0.18)
+    add(U.box(name + '_rung', (W - 0.06, 0.026, 0.026), mat=m['oak_dark'], bevel=0.004, group=group), 0, D / 2 - 0.035, 0.2)
+    return out
+
+
 def bench(x, y, rot, length, seat_h=0.45, depth=0.32, group='table', name='bench'):
     m = mats()
     out = []

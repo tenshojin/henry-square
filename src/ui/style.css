@@ -274,11 +274,29 @@ button { font-variant-numeric: lining-nums; }
 .overlay > .paper { opacity: 0; transform: translateY(14px) scale(0.985); transition: transform 0.75s var(--ease), opacity 0.55s var(--ease-soft); margin: auto; }
 .overlay.show > .paper { opacity: 1; transform: none; }
 
-/* 菜单 */
-.menu-card { width: min(800px, 100%); padding: 40px 50px 38px; }
-.menu-head { display: flex; align-items: center; justify-content: center; gap: 16px; }
-.menu-head .emblem { width: 66px; height: 66px; margin: 0; }
-.diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* 菜单：贴在画面下方的一条，上面露出对面的座位（选谁，谁就走过来坐下） */
+.overlay.menu { align-items: flex-end; padding: 0 18px 16px; background: linear-gradient(180deg, rgba(6, 4, 2, 0) 34%, rgba(6, 4, 2, 0.42) 68%, rgba(6, 4, 2, 0.72)); }
+.overlay.menu > .paper { margin: auto auto 0; }
+.menu-card { width: min(1180px, 100%); padding: 18px 28px 20px; }
+.menu-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; margin-bottom: 14px; }
+.menu-head .emblem { width: 48px; height: 48px; margin: 0; }
+.menu-head > .emblem { position: absolute; left: 26px; top: 14px; }
+.menu-titles { padding-left: 58px; text-align: left; }
+.menu-titles .title.small { font-size: 26px; text-align: left; line-height: 1.1; }
+.menu-titles .subtitle { text-align: left; font-size: 11px; letter-spacing: 0.3em; margin-top: 2px; }
+.menu-head .section { margin: 0; white-space: nowrap; }
+.menu-side { display: flex; justify-content: flex-end; gap: 10px; }
+.btn.small { font-size: 14px; padding: 0.5em 1.3em 0.46em; }
+.diff-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.menu-card .diff { padding: 12px 12px; gap: 11px; }
+.menu-card .diff-icon { flex-basis: 46px; height: 46px; padding: 10px; }
+.menu-card .diff-name { font-size: 18px; }
+.menu-card .diff-who, .menu-card .diff-desc { font-size: 13px; }
+.menu-card .diff-meta { font-size: 12.5px; gap: 8px; }
+.menu-card .diff .seal { width: 42px; height: 42px; right: -8px; top: -12px; }
+.menu-card .menu-actions { margin-top: 16px; }
+.menu-card .menu-version { left: auto; right: 26px; bottom: 26px; }
+#ui.menu-open .toolbar { bottom: auto; top: 16px; }
 .diff {
   position: relative;
   display: flex;
@@ -507,7 +525,15 @@ button { font-variant-numeric: lining-nums; }
   .splash .title { font-size: 54px; }
   .emblem { width: 100px; height: 100px; }
   .cap-title { font-size: 46px; }
-  .diff-grid { grid-template-columns: 1fr; }
+  .diff-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .menu-card { padding: 14px 12px 14px; }
+  .menu-head { grid-template-columns: 1fr; gap: 6px; margin-bottom: 10px; }
+  .menu-head > .emblem, .menu-titles, .menu-side { display: none; }
+  .menu-card .diff { padding: 9px 8px; gap: 8px; }
+  .menu-card .diff-icon { display: none; }
+  .menu-card .diff-desc { display: none; }
+  .menu-card .menu-actions { margin-top: 10px; gap: 10px; }
+  .menu-card .menu-version { display: none; }
   .fate-row { grid-template-columns: repeat(2, 1fr); }
   .menu-card, .fate-card, .modal-card, .over-card { padding: 30px 20px; }
   .panel { width: calc(50% - 24px); top: 10px; }

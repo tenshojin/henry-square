@@ -34,18 +34,26 @@ def place_characters(path=os.path.join(OUT, 'characters.blend')):
         c.objects.link(o)
         if o.type == 'ARMATURE':
             rigs[o.name.split('.')[0]] = o
+    home = {'dicer': 'opp', 'drinker': 'left', 'elder': 'right'}
     for name, rig in rigs.items():
-        if name in env_room.SEATS:
-            (x, y, z), rz = env_room.SEATS[name]
-            rig.location = (x, y, z)
-            rig.rotation_euler = (0, 0, rz)
-        elif name == 'barmaid':
-            rig.location = (-1.45, 1.35, 0)
-            rig.rotation_euler = (0, 0, math.radians(-55))
         if rig.animation_data:
             for t in rig.animation_data.nla_tracks:
                 t.mute = True
             rig.animation_data.action = None
+        if name in home:
+            (x, y), rz = env_room.CHAIRS[home[name]]
+            # 坐着时脚下原点在椅子中心前面 0.36 米（见 chars_motion.SEAT_BACK）
+            rig.location = (x + 0.36 * math.sin(rz), y - 0.36 * math.cos(rz), 0)
+            rig.rotation_euler = (0, 0, rz)
+            act = bpy.data.actions.get(name + '_sit')
+            if act:
+                rig.animation_data_create()
+                rig.animation_data.action = act
+                if hasattr(rig.animation_data, 'action_slot') and act.slots:
+                    rig.animation_data.action_slot = act.slots[0]
+        elif name == 'barmaid':
+            rig.location = (-1.4, 1.35, 0)
+            rig.rotation_euler = (0, 0, math.radians(-55))
     c.hide_render = False
     return rigs
 

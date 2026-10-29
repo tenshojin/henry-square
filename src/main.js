@@ -45,12 +45,14 @@ async function main() {
   const tav = await buildWorld(stage.scene, stage.renderer, { camera: stage.camera });
   tav.updaters.forEach((fn) => stage.add(fn));
   ui.setLoading(0.2);
-  const people = await buildPeople(stage.scene, tav, { camera: stage.camera });
+  const people = await buildPeople(stage.scene, tav, { audio });
   people.updaters.forEach((fn) => stage.add(fn));
   tav.crowd = people;
   const game = new Game(stage, ui, audio);
   game.tavern = tav;
-  // 对手的骰盅一离开桌面，对面那个年轻人就俯身伸手握住它
+  // 默认难度对应的对手直接坐在对面
+  game.setOpponent(game.difficulty, true);
+  // 对手的骰盅一离开桌面，坐在对面的人就俯身伸手握住它
   people.setOpponentCup(game.cups[1], game.cupRest[1]);
   mark('tavern');
   ui.setLoading(0.3);

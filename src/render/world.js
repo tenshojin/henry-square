@@ -120,7 +120,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
       o.material = lightmapMaterial(o.material.map, lm);
       o.matrixAutoUpdate = false;
     }
-    if (/^(FX_|SEAT_|PATH_|TRAY)/.test(o.name)) markers[o.name] = o;
+    if (/^(FX_|SEAT_|CHAIR_|PATH_|TRAY)/.test(o.name)) markers[o.name] = o;
     if (o.name === 'B_door' || o.name === 'door') door = o;
   });
   if (door) door.matrixAutoUpdate = true;

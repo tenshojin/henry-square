@@ -8,10 +8,12 @@ import env_props as P
 X0, X1, Y0, Y1, H = -3.4, 3.4, -2.6, 3.8, 3.0
 WALL_T = 0.35
 TABLE = dict(cx=0.0, cy=-0.42, w=1.04, l=1.75, top=0.754)
-SEATS = {
-    'dicer': ((0.0, 0.67, 0.0), 0.0),          # 位置、朝向（绕 Z，0 = 面朝 -Y）
-    'drinker': ((-0.72, -0.15, 0.0), math.pi / 2),
-    'elder': ((0.72, -0.15, 0.0), -math.pi / 2),
+# 会动的椅子（贴着桌子时的位置）、朝向（绕 Z，0 = 坐的人面朝 -Y）
+CHAIRS = {
+    'opp': ((0.0, 0.73), 0.0),                 # 对手（掷骰）的位子，正对玩家
+    'left': ((-0.78, -0.15), math.pi / 2),     # 左边（中年人的老位子）
+    'right': ((0.78, -0.15), -math.pi / 2),    # 右边（老人的老位子）
+    'king': ((0.89, 2.55), math.pi / 2),       # 后面右边那张桌（年轻人不上场时坐这儿喝酒）
 }
 WINDOW = dict(x=0.0, sill=1.15, w=0.95, top=2.55)
 DOOR = dict(x0=-0.52, x1=0.52, h=2.15)
@@ -460,14 +462,16 @@ def back_tables(m):
     out = []
     for k, (cx, cy) in enumerate(((-1.45, 2.75), (1.55, 2.85))):
         out += P.trestle_table(cx, cy, 0.78, 1.4, 0.74, 'back', 'backtable%d' % k)
-        out += P.bench(cx - 0.62, cy, math.pi / 2, 1.3, 0.44, 0.3, 'back', 'backbench%d' % k)
+        if k == 0:
+            out += P.bench(cx - 0.62, cy, math.pi / 2, 1.3, 0.44, 0.3, 'back', 'backbench%d' % k)
+        # 右边那张桌的左侧不放长凳：年轻人的椅子（会动）在这里
         out += P.bench(cx + 0.62, cy, math.pi / 2, 1.3, 0.44, 0.3, 'back', 'backbench%d' % k)
         z = 0.745
         out += P.wood_tankard((cx - 0.15, cy + 0.3, z), 0.5, 'back', name='bt_tank%d' % k)
         out += P.pewter_tankard((cx + 0.18, cy - 0.25, z), 2.0, 'back', name='bt_pew%d' % k)
         out += P.plate((cx, cy - 0.05, z), 0.12, 'pewter', 'back', 'bt_plate%d' % k)
         out += P.bowl((cx + 0.05, cy + 0.45, z), 0.07, 'clay_glaze', 'back', 'bt_bowl%d' % k, fill='bread')
-        o, f = P.candle_dish((cx - 0.1, cy - 0.45, z), 0.09, 'back', 'bt_candle%d' % k, power=9)
+        o, f = P.candle_dish((cx - 0.1 if k == 0 else cx + 0.17, cy - 0.45 if k == 0 else cy - 0.5, z), 0.09, 'back', 'bt_candle%d' % k, power=9)
         out += o
     return out
 
@@ -476,12 +480,12 @@ def back_tables(m):
 def game_table(m):
     t = TABLE
     out = P.trestle_table(t['cx'], t['cy'], t['w'], t['l'], t['top'], 'table', 'gametable')
-    (dx, dy, _), drot = SEATS['dicer']
-    out += P.ladder_chair(dx, dy + 0.06, drot, 0.45, 'table', 'chair_dicer')
-    out += P.bench(-0.79, -0.42, math.pi / 2, 1.6, 0.448, 0.32, 'table', 'bench_left')
-    out += P.bench(0.79, -0.42, math.pi / 2, 1.6, 0.448, 0.32, 'table', 'bench_right')
-    # 兽皮搭在近处的长凳上
-    out.append(P.ellipsoid('fur_pelt', (-0.79, -1.05, 0.46), (0.2, 0.32, 0.025), m['fur'], 'table', seg=12))
+    # 对手和两边的人坐的椅子会被拉开、挪近，游戏里单独加载（chair.glb），这里只放标记点
+    for name, ((x, y), rz) in CHAIRS.items():
+        U.empty('CHAIR_' + name, (x, y, 0.0), 'chair', (0, 0, rz))
+    # 靠近玩家这一头两边各一张不动的椅子（烘焙进场景）
+    out += P.slat_chair(-0.83, -1.0, math.pi / 2 + 0.25, 0.45, 'table', 'chair_near_l')
+    out += P.slat_chair(0.85, -0.95, -math.pi / 2 - 0.2, 0.45, 'table', 'chair_near_r')
     out += P.rug((0.0, -0.42), 2.7, 3.3, 0.0, 'floor', 'rug')
     # 桌上的静物（避开中间的骰盘、两排骰子和骰盅）
     z = t['top']
@@ -496,10 +500,10 @@ def game_table(m):
     out += P.plate((-0.12, -0.95, z), 0.11, 'pewter', 'tableprops', 'table_plate')
     # 给游戏的标记
     U.empty('TRAY', (0, 0, z), 'tray')
-    for name, ((x, y, zz), rz) in SEATS.items():
-        U.empty('SEAT_' + name, (x, y, zz), 'seat', (0, 0, rz))
-    for k, p in enumerate([(-2.0, 1.9, 0), (-1.45, 1.35, 0), (-0.95, 0.95, 0)]):
+    for k, p in enumerate([(-1.74, 1.98, 0), (-1.4, 1.35, 0), (-0.95, 0.95, 0)]):
         U.empty('PATH_barmaid_%d' % k, p, 'path')
+    # 女店员要坐下时，把托盘先放到柜台上这里
+    U.empty('TRAY_counter', (-2.03, 1.95, 1.085), 'tray')
     return out
 
 

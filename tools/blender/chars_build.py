@@ -1,4 +1,4 @@
-# 人物总装：MPFB 身体 → 表情形态键 → 去掉辅助网格 → 坐姿设为静止姿势 → 按设定图穿衣服
+# 人物总装：MPFB 身体 → 表情形态键 → 去掉辅助网格；还有做衣服用的区域蒙版、靴子、腰带等工具
 import bpy, bmesh, os, math, sys
 import numpy as np
 from mathutils import Vector
@@ -74,44 +74,6 @@ def delete_helpers(body):
 
 def mesh_objs(objs):
     return [o for k, o in objs.items() if k != 'rig' and o.type == 'MESH']
-
-
-# ---------- 坐姿 ----------
-def sit(objs, hands, lean=0.26, head_dir=(0, 0.02, 1)):
-    """hands: {'l': (目标, 肘部方向), 'r': ...}（骨架空间）。"""
-    rig, body = objs['rig'], objs['body']
-    for pb in rig.pose.bones:
-        pb.matrix_basis.identity()
-    P.upd()
-    for s, sx in (('l', 1), ('r', -1)):
-        P.aim(rig, 'thigh_' + s, (0.07 * sx, -1, -0.03))
-        P.aim(rig, 'calf_' + s, (0.02 * sx, -0.16, -1))
-        P.aim(rig, 'foot_' + s, (0.03 * sx, -0.89, -0.45))
-        P.aim(rig, 'ball_' + s, (0.0, -1, 0.05))
-    P.aim(rig, 'spine_01', (0, -lean, 1))
-    P.aim(rig, 'spine_02', (0, -0.05, 1))
-    P.aim(rig, 'spine_03', (0, 0.06, 1))
-    P.aim(rig, 'neck_01', (0, -0.22, 0.97))
-    P.aim(rig, 'head', head_dir)
-    low = float(P.evaluated_coords(body)[:, 2].min())
-    rp = rig.pose.bones['Root']
-    M = rp.matrix.copy()
-    M.translation.z -= low
-    rp.matrix = M
-    P.upd()
-    for s in ('l', 'r'):
-        if s in hands:
-            tgt, pole, hand_dir = hands[s]
-            P.ik_arm(rig, s, tgt, pole)
-            P.aim(rig, 'hand_' + s, hand_dir)
-    # 手指放松微屈
-    for s in ('l', 'r'):
-        for f in ('index', 'middle', 'ring', 'pinky'):
-            for j, a in ((1, 0.18), (2, 0.28), (3, 0.2)):
-                P.bend(rig, '%s_0%d_%s' % (f, j, s), a, 'X')
-    co = P.evaluated_coords(body)
-    m = (co[:, 1] > -0.12) & (co[:, 2] < 0.7) & (np.abs(co[:, 0]) < 0.2)
-    return float(co[m, 2].min())
 
 
 # ---------- 各部位工具 ----------
@@ -261,56 +223,6 @@ def hide_body(body, covered, erode=1):
     bm.free()
 
 
-# ---------- 年轻人（投骰子）----------
-def outfit_dicer(objs, info, mats):
-    rig = objs['rig']
-    m = masks(info)
-    pel, z = m['pel'], m['z']
-    waist = pel.z + 0.04
-    out = {}
-    # 马甲：盖住前胸后背和肩头，只留袖窿；前襟从脖子根往下收成 V 字，到胸口下方合拢（V 里露出衬衫）
-    co, no = info['co'], info['no']
-    nk = Vector(C.bone_pts(rig, 'neck_01')[0])
-    zb = Vector(C.bone_pts(rig, 'spine_03')[0]).z - 0.05
-    f = np.clip((co[:, 2] - zb) / max(nk.z - zb, 1e-3), 0, 1)
-    # 连续的“距离场”（< 0 = 马甲盖住的地方），按它的 0 等值线裁边，边才是顺的；几个条件取最大值 = 同时满足
-    v_open = np.minimum(np.minimum(-0.25 - no[:, 1], co[:, 2] - zb), 0.068 * f - np.abs(co[:, 0] - nk.x))
-    v_neck = np.minimum((m['t_neck_01'] + 0.15) * 0.1, 0.085 - m['r_neck_01'])
-    vest_phi = np.maximum.reduce([0.5 - C.wsum(info, None, TORSO + ['neck_01']), m['up_w'] - 0.4, v_neck, v_open,
-                                  (waist - 0.1) - z, C.wsum(info, None, ['head']) - 0.5])
-    vest_k = vest_phi < 0
-    shirt_k = (m['torso'] | sleeve(m, 0.42)) & ~neck_hole(m, 0.072) & (z > waist - 0.07) & ~m['head'] & ~C.erode(info['body'], vest_k, 2)
-    out['shirt'] = C.shell(info, 'dicer.shirt', lambda i: shirt_k[i],
-                           lambda i, c, n: 0.005 + 0.007 * float(m['upper'][i] or m['low_l'][i] or m['low_r'][i]), mats['linen_cream'],
-                           solid=0.002, smooth=1, folds=C.fold_noise(0.0025, 60, (0, 0, 1), 3))
-    for s in ('l', 'r'):
-        h, t, d = bone_axis(rig, 'lowerarm_' + s)
-        out['cuff_' + s] = ring_loft(info, 'dicer.cuff_' + s, [h.lerp(t, 0.36 + 0.035 * k) for k in range(4)], d, mats['linen_cream'], n=20, offset=0.016, region='arm_' + s, rmax=0.09)
-    out['vest'] = C.shell(info, 'dicer.vest', lambda i: vest_k[i], lambda i, c, n: 0.02, mats['leather_dark'], solid=0.004, smooth=2, relax=6, snap=True, field=vest_phi)
-    pants_k = legs_to(m, 0.32) & ~(m['torso'] & (z > waist + 0.01)) & ~m['feet']
-    out['pants'] = C.shell(info, 'dicer.pants', lambda i: pants_k[i], lambda i, c, n: 0.007, mats['wool_dark'], solid=0.002, smooth=1,
-                           folds=C.fold_noise(0.003, 45, (0, 1, 0), 5))
-    boot_k = boot_from(m, 0.12)
-    out.update(boots(info, rig, m, mats['leather_brown'], 'dicer.boots', 0.12))
-    for s in ('l', 'r'):
-        h, t, d = bone_axis(rig, 'calf_' + s)
-        out['bootcuff_' + s] = ring_loft(info, 'dicer.bootcuff_' + s, [h.lerp(t, 0.1 + 0.04 * k) for k in range(3)], d, mats['leather_brown'], n=24, offset=0.02, region='leg_' + s)
-    zb = Vector(C.bone_pts(rig, 'spine_01')[0]).z + 0.01
-    out['belt'] = ring_loft(info, 'dicer.belt', [Vector((pel.x, pel.y, zb - 0.024)), Vector((pel.x, pel.y, zb + 0.024))], (0, 0, 1), mats['leather_belt'], n=48, offset=0.028, region='torso', rmax=0.3)
-    h, t, d = bone_axis(rig, 'lowerarm_l')
-    out['bracer'] = ring_loft(info, 'dicer.bracer', [h.lerp(t, 0.55 + 0.1 * k) for k in range(5)], d, mats['leather_brown'], n=20, offset=0.012, restrict=['lowerarm_l', 'hand_l'], region='arm_l', rmax=0.09)
-    # 斜挎带从右肩（锁骨外侧，躯干上）斜到左胯，不压在肩关节上，免得被袖子盖住
-    cl_h, cl_t = C.bone_pts(rig, 'clavicle_r')
-    shR = Vector(cl_h).lerp(Vector(cl_t), 0.62) + Vector((0, 0, 0.07))
-    hipL = Vector(C.bone_pts(rig, 'thigh_l')[0]) + Vector((0.03, 0, 0.06))
-    mid = (shR + hipL) / 2
-    dvec = (hipL - shR).normalized()
-    nrm = dvec.cross(Vector((0, 1, 0))).normalized()
-    out['strap'] = ring_loft(info, 'dicer.strap', [mid - nrm * 0.02, mid + nrm * 0.02], nrm, mats['leather_belt'], n=56, offset=0.03, ref=dvec, region='torso', rmax=0.4)
-    hide_body(objs['body'], shirt_k | vest_k | pants_k | boot_k)
-    return out
-
-
 MATS = {}
 
 
@@ -319,26 +231,41 @@ def materials():
     C.make_fabric('wool')
     C.make_fabric('canvas')
     C.make_leather()
+    C.make_studded()
     def fab(name, kind, hexc, rough, scale):
         c = B.hex_rgb(hexc)
         c = [((x + 0.055) / 1.055) ** 2.4 if x > 0.04045 else x / 12.92 for x in c]
         MATS[name] = C.fabric_material(name, kind, (c[0], c[1], c[2], 1), rough=rough, scale=scale)
-    fab('linen_cream', 'linen', '#d9ccae', 0.85, 7)
-    fab('linen_white', 'linen', '#e8e2d4', 0.85, 7)
-    fab('wool_dark', 'wool', '#2f2620', 0.92, 6)
-    fab('wool_brown', 'wool', '#5a3f2a', 0.92, 6)
+    # 颜色取自设定图
+    fab('linen_cream', 'linen', '#cdbf9e', 0.85, 7)
+    fab('linen_white', 'linen', '#e6ddcc', 0.85, 7)
+    fab('linen_tan', 'linen', '#8e7656', 0.88, 6)
+    fab('linen_apron', 'canvas', '#d3c8b0', 0.9, 9)
+    fab('canvas_apron', 'canvas', '#b3a283', 0.9, 9)
+    fab('wool_dark', 'wool', '#2e2620', 0.92, 6)
+    fab('wool_brown', 'wool', '#5c3a26', 0.92, 6)
+    fab('wool_pants', 'wool', '#4a3426', 0.92, 6)
+    fab('wool_olive', 'wool', '#4d4a2b', 0.92, 6)
     fab('wool_green', 'wool', '#4a4a2e', 0.92, 6)
-    fab('wool_skirt', 'wool', '#3c3326', 0.92, 6)
+    fab('wool_skirt', 'wool', '#2f3a30', 0.92, 6)
+    fab('wool_rust', 'wool', '#6b3b25', 0.92, 6)
+    fab('wool_red', 'wool', '#5e1d15', 0.9, 7)
+    fab('wool_cap', 'wool', '#5e4430', 0.92, 7)
     fab('leather_dark', 'leather', '#2c1a0e', 0.5, 6)
-    fab('leather_brown', 'leather', '#4a2c16', 0.48, 6)
-    fab('leather_belt', 'leather', '#38200f', 0.45, 8)
-    fab('leather_coat', 'leather', '#4e321e', 0.58, 4)
-    fab('wool_cap', 'wool', '#5e4632', 0.92, 7)
-    fab('rope', 'canvas', '#b8a27a', 0.9, 30)
-    MATS['lace'] = C.plain_material('lace', (0.16, 0.11, 0.07, 1), 0.7)
-    MATS['gourd'] = C.plain_material('gourd', (0.55, 0.36, 0.16, 1), 0.45)
+    fab('leather_brown', 'leather', '#4e3018', 0.48, 6)
+    fab('leather_belt', 'leather', '#4a2c16', 0.45, 8)
+    fab('leather_coat', 'leather', '#3d2b1d', 0.58, 4)
+    fab('leather_mantle', 'leather', '#3a2a1e', 0.62, 4)
+    fab('leather_boot', 'leather', '#3a2617', 0.5, 6)
+    fab('leather_green', 'leather', '#2e3029', 0.52, 6)
+    fab('wool_olive_pants', 'wool', '#4a3f2e', 0.92, 6)
+    MATS['leather_vest'] = C.fabric_material('leather_vest', 'studded', (1, 1, 1, 1), rough=0.5, scale=1.0)
+    MATS['lace'] = C.plain_material('lace', (0.62, 0.55, 0.42, 1), 0.7)
+    MATS['gourd'] = C.plain_material('gourd', (0.36, 0.2, 0.08, 1), 0.38)
     MATS['iron'] = C.plain_material('iron', (0.32, 0.3, 0.28, 1), 0.45, 0.85)
     MATS['brass'] = C.plain_material('brass', (0.75, 0.55, 0.28, 1), 0.35, 1.0)
+    MATS['hair_bun'] = C.plain_material('hair_bun', (0.09, 0.045, 0.02, 1), 0.6)
+    fab('rope', 'canvas', '#b8a27a', 0.9, 30)
     return MATS
 
 

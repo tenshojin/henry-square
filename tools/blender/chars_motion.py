@@ -503,7 +503,7 @@ def make_drink(rig, m, st, name, mouth, dur=3.4):
     return record(rig, name, keys)
 
 
-def make_all(name, rig, objs, z_sit=None):
+def make_all(name, rig, objs, z_sit=None, mouth=None):
     """一个人物的全部动作。z_sit：坐着时骨盆高度（穿衣服前用完整身体量好再传进来）。返回 {名字: 数值}。"""
     st = dict(STYLE[name])
     m = measure(rig)
@@ -522,15 +522,16 @@ def make_all(name, rig, objs, z_sit=None):
     make_sit_down(rig, m, st, name + '_sit_down')
     make_stand_up(rig, m, st, name + '_stand_up')
     make_laugh(rig, m, st, name + '_laugh')
-    e = objs['eyes']
     reset(rig)
     pose_sit(rig, m, st, hands='table')
-    ec = sum((Vector(v.co) for v in e.data.vertices), Vector()) / len(e.data.vertices)
-    # 眼睛网格是静止姿势的坐标：用头骨把它变换到坐姿下
+    # 嘴前面的点（静止姿势坐标）：给了就用（AI 人物按真实的脸算），否则按眼睛估；再用头骨变换到坐姿下
+    if mouth is None:
+        e = objs['eyes']
+        ec = sum((Vector(v.co) for v in e.data.vertices), Vector()) / len(e.data.vertices)
+        mouth = ec + Vector((0, -0.07, -0.075))
     hb = rig.data.bones['head']
     M = rig.pose.bones['head'].matrix @ hb.matrix_local.inverted()
-    mouth = M @ (ec + Vector((0, -0.07, -0.075)))
-    make_drink(rig, m, st, name + '_drink', mouth)
+    make_drink(rig, m, st, name + '_drink', M @ Vector(mouth))
     if tray is not None:
         make_idle(rig, m, st, name + '_idle_tray', period=3.6, seed=seed, tray=tray)
         act, speed = make_walk(rig, m, st, name + '_walk_tray', tray=tray)

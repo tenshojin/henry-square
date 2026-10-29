@@ -237,6 +237,7 @@ export class Game {
 
   // 选对手的菜单：镜头看向对面；点难度卡片时对面就换人（原来的人起身离开，新的人走过来坐下）
   openMenu() {
+    this.tavern?.crowd?.setMatch(false);
     if (this.stage.camMode !== 'menu') this.stage.moveCam('menu', 1.8);
     this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS, (diff) => this.setOpponent(diff));
   }
@@ -305,6 +306,7 @@ export class Game {
     this.clearDice();
     this.setOpponent(diff);
     this.target = TARGETS[diff];
+    this.tavern?.crowd?.setMatch(true);
     if (this.stage.camMode !== 'game') this.stage.moveCam('game', 1.7);
     const offers = Array.from({ length: 6 }, () => (Math.random() < 0.5 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
     const aiSpecial = this.makeAiDice(diff);

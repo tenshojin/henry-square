@@ -10,7 +10,7 @@ import { UNIT, TABLE_Y, FLOOR_Y } from './world.js';
 
 const V3 = THREE.Vector3;
 const Q = THREE.Quaternion;
-const _a = new V3(), _b = new V3(), _c = new V3(), _d = new V3(), _e = new V3();
+const _a = new V3(), _b = new V3(), _c = new V3(), _d = new V3(), _e = new V3(), _fw = new V3(), _fd = new V3();
 const _q1 = new Q(), _q2 = new Q(), _q3 = new Q();
 const ID = new Q();
 
@@ -249,8 +249,8 @@ class Actor {
     return a.getClip().duration / ts;
   }
   updateAnim(dt) {
+    let sum = 0;
     for (const k in this.act) {
-      const a = this.act[k];
       const tgt = this.target[k] || 0;
       let w = this.w[k] || 0;
       if (w !== tgt) {
@@ -258,9 +258,17 @@ class Actor {
         w = tgt > w ? Math.min(tgt, w + step) : Math.max(tgt, w - step);
         this.w[k] = w;
       }
-      if (w <= 0 && tgt <= 0) {
+      sum += w;
+    }
+    // 权重总和保持 1：三个以上片段同时在淡入淡出时，总和会暂时小于 1，
+    // three.js 会把差的那部分用绑定姿势（站直、手臂张开）补上，人就会猛地抽一下
+    const norm = sum > 1e-4 ? 1 / sum : 1;
+    for (const k in this.act) {
+      const a = this.act[k];
+      const w = this.w[k] || 0;
+      if (w <= 0 && (this.target[k] || 0) <= 0) {
         if (a.isRunning() || a.paused) a.stop();
-      } else a.setEffectiveWeight(w);
+      } else a.setEffectiveWeight(w * norm);
     }
     this.mixer.update(dt);
   }
@@ -274,10 +282,16 @@ class Actor {
     this.root.rotation.set(0, this.yaw, 0);
   }
 
-  // 头转向目标：限制角度，平滑跟随；脖子分担一部分
-  lookAt(target, w, dt, rate = 3) {
+  // 头转向目标：限制角度，平滑跟随；脖子分担一部分。
+  // 目标在身后（和身体朝向水平夹角超过 100°）就不看：那时要转的方向几乎反过来，算出来的转轴每帧乱跳，头会抖
+  lookAt(target, w, dt, rate = 2) {
     const head = this.bone('head');
     if (!head || !this.headFwd) return;
+    if (target) {
+      this.root.getWorldDirection(_fw).setY(0);
+      _fd.copy(target).sub(this.pos).setY(0);
+      if (_fw.lengthSq() > 1e-6 && _fd.lengthSq() > 1e-6 && _fw.angleTo(_fd) > 1.75) target = null;
+    }
     if (target) {
       if (!this.lookInit) {
         this.look.copy(target);
@@ -295,16 +309,19 @@ class Actor {
     head.getWorldQuaternion(_q1);
     const cur = _c.copy(this.headFwd).applyQuaternion(_q1).normalize();
     const ang = cur.angleTo(want);
-    const lim = 0.9;
-    if (ang > lim) want.copy(cur).lerp(want, lim / ang).normalize();
-    _q2.setFromUnitVectors(cur, want).slerp(ID, 1 - this.lookW);
+    const lim = 0.7;
+    // 总共要转的量：朝目标转，最多转 lim（超过就停在 lim，沿同一个轴，角度连续）。
+    // （原来写成 want.copy(cur).lerp(want, …)，先把 want 覆盖成了 cur，超过上限时一点都不转；
+    //  目标正好在上限附近时，头每帧在“转满”和“不转”之间来回跳 —— 这就是人物的鬼畜抖动）
+    _q2.setFromUnitVectors(cur, want);
+    if (ang > lim) _q2.slerp(ID, 1 - lim / ang);
+    _q2.slerp(ID, 1 - this.lookW);
     const neck = this.bone('neck_01');
     if (neck) {
+      // 脖子分 40%，头再转剩下的（世界空间：总量 × 脖子那份的逆）
       _q3.copy(ID).slerp(_q2, 0.4);
       rotateWorld(neck, _q3);
-      head.getWorldQuaternion(_q1);
-      const cur2 = _c.copy(this.headFwd).applyQuaternion(_q1).normalize();
-      _q2.setFromUnitVectors(cur2, want).slerp(ID, 1 - this.lookW);
+      _q2.multiply(_q3.invert());
     }
     rotateWorld(head, _q2);
   }
@@ -449,6 +466,9 @@ export async function buildPeople(scene, world, { audio } = {}) {
   const trayLocal = new V3(0, 0.0, 0.3); // 端着时托盘在人物本地坐标里的位置（运行时按手的位置更新）
 
   // ---------- 状态切换 ----------
+  // 对局中（镜头在牌桌上）：坐着的人手放在腿上（桌面下），投骰子时画面里不会伸进来一只只手
+  let match = false;
+  const sitPose = () => (match ? 'sit_lap' : 'sit');
   const seatNow = (a, seat) => {
     a.seat = seat;
     seat.occupant = a;
@@ -458,7 +478,7 @@ export async function buildPeople(scene, world, { audio } = {}) {
     a.yaw = seat.yaw;
     a.walk = null;
     a.oneShot = null;
-    a.loop('sit', 0.01);
+    a.loop(sitPose(), 0.01);
     a.setState('seated');
     a.place();
   };
@@ -583,10 +603,10 @@ export async function buildPeople(scene, world, { audio } = {}) {
           o.t += dt;
           if (!o.back && o.t >= o.dur - 0.45) {
             o.back = true;
-            a.setW({ sit: 1 }, 0.45);
+            a.setW({ [sitPose()]: 1 }, 0.45);
           }
           if (o.t >= o.dur) a.oneShot = null;
-        }
+        } else if ((a.target[sitPose()] || 0) < 1) a.setW({ [sitPose()]: 1 }, 0.9); // 开局 / 回菜单：手慢慢挪到腿上 / 桌上
         a.seat.rootPos(a.seat.out, a.pos);
         break;
       }
@@ -662,7 +682,7 @@ export async function buildPeople(scene, world, { audio } = {}) {
       }
       case 'sit_down':
         if (a.st >= a.sitT - 0.15) {
-          a.setW({ sit: 1 }, 0.5);
+          a.setW({ [sitPose()]: 1 }, 0.5);
           a.setState('scoot_in');
           if (audio) audio.chairScrape(0.5, pan(a.pos), 0.09);
         }
@@ -821,27 +841,22 @@ export async function buildPeople(scene, world, { audio } = {}) {
   }
   arrange(want);
 
-  // ---------- 对手的骰盅：俯身伸手握住 ----------
+  // ---------- 骰盅：在动的时候对手的视线跟着它 ----------
   let cup = null;
   let cupRest = null;
   let cupW = 0;
-  const grip = new V3();
-  const lean = (p, amount) => {
-    const ax = new V3(1, 0, 0).applyQuaternion(p.root.quaternion);
-    for (const [b, k] of [['spine_01', 0.35], ['spine_02', 0.35], ['spine_03', 0.3]]) {
-      const bone = p.bone(b);
-      if (bone) rotateWorld(bone, _q1.setFromAxisAngle(ax, amount * k));
-    }
-  };
+  let allCups = [];
+  let throwT = 0; // 最近一次有骰盅在动之后过了多久
 
   const timers = { drink: 5 + Math.random() * 4, laugh: 18 + Math.random() * 10 };
-  const seatedIdle = (a) => a.state === 'seated' && !a.oneShot && (a.w.sit || 0) > 0.95;
+  const seatedIdle = (a) => a.state === 'seated' && !a.oneShot && (a.w.sit || 0) + (a.w.sit_lap || 0) > 0.95;
 
   function placeMugs() {
     for (const [n, mg] of Object.entries(mugs)) {
       if (mg.fitted) continue;
       const owner = list.find((x) => HOME[x.name] === n);
-      if (owner && owner.seat === seats[n] && seatedIdle(owner)) fitMug(n);
+      // 按手放在桌上时的位置摆杯子（手在腿上时不摆）
+      if (owner && owner.seat === seats[n] && seatedIdle(owner) && (owner.w.sit || 0) > 0.95) fitMug(n);
     }
     for (const [seatName, mug] of Object.entries(mugs)) {
       const a = list.find((x) => x.seat === seats[seatName] && x.state === 'seated' && x.oneShot && x.oneShot.name === 'drink');
@@ -908,7 +923,9 @@ export async function buildPeople(scene, world, { audio } = {}) {
     // 喝酒、笑（只有坐在自己老位子、手边有杯子的人才喝）
     timers.drink -= dt;
     timers.laugh -= dt;
-    if (timers.drink <= 0) {
+    throwT = allCups.some(([o, r]) => o.position.distanceTo(r) > 0.15) ? 0 : throwT + dt;
+    if (timers.drink <= 0 && throwT > 1.5) {
+      // 正在投骰子时不喝（手和杯子不会在桌边晃进画面）
       const cands = list.filter((a) => seatedIdle(a) && a.seat !== opp && mugs[a.seat.name] && a.act.drink);
       if (cands.length) {
         const a = cands[Math.floor(Math.random() * cands.length)];
@@ -930,19 +947,11 @@ export async function buildPeople(scene, world, { audio } = {}) {
       a.updateAnim(dt);
     }
 
-    // 对手：盅一离开原位，权重平滑升到 1；先俯身再用 IK 握住盅身
+    // 骰盅在动（谁投都一样）：对手只用眼睛跟着盅，不再俯身伸手去握（投骰子时画面里不出现手）
     const oppA = opp.occupant && opp.occupant.state === 'seated' ? opp.occupant : null;
     if (cup && cupRest) {
       const moving = cup.position.distanceTo(cupRest) > 0.15;
-      cupW = damp(cupW, moving && oppA ? 1 : 0, moving ? 6 : 2.5, dt);
-      if (cupW > 0.001 && oppA) {
-        lean(oppA, 0.42 * cupW);
-        cup.updateMatrixWorld(true);
-        grip.set(0, 2.1, 1.95).applyMatrix4(cup.matrixWorld);
-        const sh = oppA.bone('upperarm_r');
-        const pole = wpos(sh, tmp).add(new V3(-12, -10, 4).applyQuaternion(oppA.root.quaternion));
-        twoBoneIK(sh, oppA.bone('lowerarm_r'), oppA.bone('hand_r'), grip, pole, cupW);
-      }
+      cupW = damp(cupW, moving ? 1 : 0, moving ? 4 : 2.5, dt);
     }
 
     // 视线：对手看自己的盅 / 骰盘 / 你；旁边的人看骰盘、看对手，有人走过来就看他
@@ -952,7 +961,7 @@ export async function buildPeople(scene, world, { audio } = {}) {
     const moverHead = mover && mover.bone('head') ? wpos(mover.bone('head'), new V3()) : null;
     for (const a of list) {
       if (a === oppA) {
-        if (cup && cupW > 0.3) a.lookAt(cup.position, 1, dt, 4);
+        if (cup && cupW > 0.3) a.lookAt(cup.position, 0.8, dt, 2.5);
         else if (moverHead && mover !== a && mover.pos.distanceTo(a.pos) < 2.2 * UNIT) a.lookAt(moverHead, 0.7, dt);
         else if (glance > 0.55 && glance < 0.78) a.lookAt(boardUp, 0.8, dt);
         else a.lookAt(cam.position, 0.75, dt);
@@ -987,6 +996,10 @@ export async function buildPeople(scene, world, { audio } = {}) {
       cup = obj;
       cupRest = rest.clone();
     },
+    // 两个骰盅（你的、对手的）：任何一个在动就算正在投骰子
+    setCups(objs, rests) {
+      allCups = objs.map((o, i) => [o, rests[i].clone()]);
+    },
     // 换对手：instant = 直接坐好（刚进游戏时用）
     setOpponent(name, instant = false) {
       if (!actors[name]) return;
@@ -995,6 +1008,10 @@ export async function buildPeople(scene, world, { audio } = {}) {
       for (const a of list) a.goal = a.name === want ? 'opp' : 'home';
     },
     opponent: () => want,
+    // 对局开始 / 回到菜单：坐着的人把手放到腿上 / 桌上
+    setMatch(on) {
+      match = !!on;
+    },
     // 对手坐稳了没有、有没有人还在走动
     isReady() {
       const a = actors[want];

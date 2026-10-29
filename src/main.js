@@ -52,8 +52,9 @@ async function main() {
   game.tavern = tav;
   // 默认难度对应的对手直接坐在对面
   game.setOpponent(game.difficulty, true);
-  // 对手的骰盅一离开桌面，坐在对面的人就俯身伸手握住它
+  // 对手的骰盅在动时，坐在对面的人眼睛跟着它；任何一个盅在动时，桌边的人不去拿酒杯
   people.setOpponentCup(game.cups[1], game.cupRest[1]);
+  people.setCups(game.cups, game.cupRest);
   mark('tavern');
   ui.setLoading(0.3);
   await nextFrame();

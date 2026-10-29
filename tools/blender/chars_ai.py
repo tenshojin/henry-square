@@ -172,7 +172,8 @@ def attach_head(name, body, zt, report=None, overlap=0.03):
     a = P.load_rgba(os.path.join(ref_dir(), name + '_front.png'))[..., 3] > 0.5
     rows = np.nonzero(a.any(1))[0]
     mouth = 0.5 * (info['points'][3][1] + info['points'][4][1])
-    z_cut = zt * (1 - (mouth - rows[0]) / (rows[-1] - rows[0])) - CUT_BELOW_MOUTH.get(name, 0.07)
+    z_mouth = zt * (1 - (mouth - rows[0]) / (rows[-1] - rows[0]))
+    z_cut = z_mouth - CUT_BELOW_MOUTH.get(name, 0.07)
     top = H[H[:, 2] > zt - 0.1 * zt]
     axis = 0.5 * (top.min(0) + top.max(0))[:2]
     ring = H[(H[:, 2] > z_cut) & (H[:, 2] < z_cut + 0.08)]
@@ -195,7 +196,7 @@ def attach_head(name, body, zt, report=None, overlap=0.03):
     if report is not None:
         report['head'] = dict(scale=round(float(s), 3), icp_mm=round(float(err) * 1000, 1), z_cut=round(float(z_cut), 3),
                               radius=round(R_h, 3), faces=nf)
-    return hd, z_cut - overlap
+    return hd, z_cut - overlap, z_mouth
 
 
 def decimate(ob, faces=FACES):
@@ -791,33 +792,60 @@ def fit_arms(ai, rig, report=None, step=0.01):
 
 
 # ---------------- 绑定到骨架 ----------------
+def posed_copy(o):
+    """复制一个物体，按骨架当前姿势把修改器应用掉（形态键先清掉），解除父子关系：带权重的“定格”网格。"""
+    c = o.copy()
+    c.data = o.data.copy()
+    bpy.context.scene.collection.objects.link(c)
+    M = o.matrix_world.copy()
+    if c.data.shape_keys:
+        c.shape_key_clear()
+    select(c)
+    for m in list(c.modifiers):
+        try:
+            bpy.ops.object.modifier_apply(modifier=m.name)
+        except RuntimeError:
+            c.modifiers.remove(m)
+    c.parent = None
+    c.matrix_world = M
+    if 'henry_char' in c:
+        del c['henry_char']
+    return c
+
+
+def reweight_head(ob, full, rig, mask):
+    """头部网格（帽子、兜帽、长发、胡子都连在头上）的权重改从完整的 MPFB 身体传：
+    离头骨近的跟头，垂到脖子、肩膀、后背的兜帽 / 长发 / 披肩跟脖子和上身走。
+    （从代理传时最近的往往是头发、兜帽这些挂在头上的件，整块都跟着头转，一转头就扫过肩膀穿模，头一晃整片跟着抖。）"""
+    W1, n1 = weights(ob)
+    tmp = ob.copy()
+    tmp.data = ob.data.copy()
+    bpy.context.scene.collection.objects.link(tmp)
+    src = posed_copy(full)
+    transfer_weights(tmp, src, rig, smooth=2)
+    W2, n2 = weights(tmp)
+    bpy.data.objects.remove(tmp, do_unlink=True)
+    bpy.data.objects.remove(src, do_unlink=True)
+    names = sorted(set(n1) | set(n2))
+    A = np.zeros((len(W1), len(names)))
+    B = np.zeros_like(A)
+    for j, n in enumerate(n1):
+        A[:, names.index(n)] = W1[:, j]
+    for j, n in enumerate(n2):
+        B[:, names.index(n)] = W2[:, j]
+    m = mask.astype(np.float64)[:, None]
+    set_weights(ob, A * (1 - m) + B * m, names)
+    hi = names.index('head') if 'head' in names else None
+    return None if hi is None else round(float((B[mask, hi] > 0.9).mean()), 3)
+
+
 def proxy_source(name, objs, ref=True):
     """代理（MPFB 身体 + 程序衣服 + 头发胡子）摆成设定图站姿（ref=False：用骨架当前的姿势）、应用掉修改器，合成一个带权重的物体。"""
     rig = objs['rig']
     if ref:
         P.pose_ref(rig, name)
     skip = {objs[k] for k in SKIP if k in objs}
-    parts = []
-    for o in P.char_meshes(name):
-        if o in skip or not o.vertex_groups:
-            continue
-        c = o.copy()
-        c.data = o.data.copy()
-        bpy.context.scene.collection.objects.link(c)
-        M = o.matrix_world.copy()
-        if c.data.shape_keys:
-            c.shape_key_clear()
-        select(c)
-        for m in list(c.modifiers):
-            try:
-                bpy.ops.object.modifier_apply(modifier=m.name)
-            except RuntimeError:
-                c.modifiers.remove(m)
-        c.parent = None
-        c.matrix_world = M
-        if 'henry_char' in c:
-            del c['henry_char']
-        parts.append(c)
+    parts = [posed_copy(o) for o in P.char_meshes(name) if o not in skip and o.vertex_groups]
     bpy.ops.object.select_all(action='DESELECT')
     for c in parts:
         c.select_set(True)
@@ -1152,6 +1180,13 @@ def build_one(name, x=0.0, report=None, size=2048):
     st = dict(A.STYLE[name])
     z_sit = A.seat_height(rig, objs['body'], A.measure(rig), st) + 0.008
     A.reset(rig)
+    # 穿衣服前留一份完整的身体（衣服会删掉被盖住的身体面）：头部网格的权重从它传
+    full = objs['body'].copy()
+    full.data = objs['body'].data.copy()
+    bpy.context.scene.collection.objects.link(full)
+    full.name = full.data.name = name + '.fullbody'
+    if 'henry_char' in full:
+        del full['henry_char']
     info = C.body_info(objs['body'], rig)
     mats = CB.materials()
     clothes = O.OUTFITS[name](objs, info, mats)
@@ -1170,7 +1205,7 @@ def build_one(name, x=0.0, report=None, size=2048):
     head = None
     res = attach_head(name, ai, zt, rep)
     if res:
-        hd, z_lo = res
+        hd, z_lo, z_mouth = res
         hd.vertex_groups.new(name='headpart').add(list(range(len(hd.data.vertices))), 1.0, 'REPLACE')
         bpy.ops.object.select_all(action='DESELECT')
         hd.select_set(True)
@@ -1178,7 +1213,7 @@ def build_one(name, x=0.0, report=None, size=2048):
         bpy.context.view_layer.objects.active = ai
         bpy.ops.object.join()
         W, names = weights(ai)
-        head = dict(mask=W[:, names.index('headpart')] > 0.5, z_lo=z_lo)
+        head = dict(mask=W[:, names.index('headpart')] > 0.5, z_lo=z_lo, z_mouth=z_mouth)
         ai.vertex_groups.remove(ai.vertex_groups['headpart'])
     filled = paint(name, ai, size, rep, head=head)
     # 骨架的手臂对准 AI 网格的手臂，代理也按这个姿势重做一遍再传权重
@@ -1187,12 +1222,23 @@ def build_one(name, x=0.0, report=None, size=2048):
     bpy.data.objects.remove(src, do_unlink=True)
     src = proxy_source(name, objs, ref=False)
     transfer_weights(ai, src, rig)
+    if head is not None:
+        rep['head_bone_share'] = reweight_head(ai, full, rig, head['mask'])
+    bpy.data.objects.remove(full, do_unlink=True)
     hands = make_hands(name, objs, ai, rig, filled, report=rep)
     rep['unpose_err'] = unpose(ai, rig)
     C.add_armature(ai, rig)
     ai['henry_char'] = name
     A.reset(rig)
-    anim = A.make_all(name, rig, objs, z_sit=z_sit)
+    # 喝酒时杯子举到的位置：按 AI 头部真实的脸（嘴那个高度最前面的嘴唇 / 胡子）往前 4 厘米，杯子不会插进胡子里
+    mouth = None
+    if head is not None:
+        co = mesh_co(ai)
+        col = co[(np.abs(co[:, 0]) < 0.02) & (np.abs(co[:, 2] - head['z_mouth']) < 0.012)]
+        if len(col):
+            mouth = Vector((0.0, float(col[:, 1].min()) - 0.04, head['z_mouth']))
+            rep['mouth'] = [round(v, 3) for v in mouth]
+    anim = A.make_all(name, rig, objs, z_sit=z_sit, mouth=mouth)
     for o in list(bpy.data.objects):
         if o.type == 'MESH' and o.get('henry_char') == name and o not in (ai, hands):
             bpy.data.objects.remove(o, do_unlink=True)

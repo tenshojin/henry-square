@@ -6,7 +6,7 @@ import { decide } from './ai.js';
 import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
 import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
-import { TABLE_Y } from '../render/tavern.js';
+import { TABLE_Y } from '../render/world.js';
 import { GAME_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
 import { i18n } from '../i18n.js';
 
@@ -119,17 +119,18 @@ export class Game {
   buildIntroPath() {
     const g = GAME_CAM;
     const keys = [
-      [0, [0, 42, 205], [0, 30, 120]],
-      [1.4, [0, 42, 198], [0, 30, 120]],
-      [3.8, [0, 41, 160], [0, 28, 70]],
-      [5.8, [0, 41, 116], [-12, 24, 0]],
-      [8.4, [-4, 44, 92], [-70, 26, -80]],
-      [11.0, [4, 44, 78], [-5, 22, -150]],
-      [13.6, [12, 42, 64], [110, 22, -70]],
-      [16.4, [6, 37, 50], [0, 6, -12]],
-      [18.8, [2, 29, 32], [0, -2, -2]],
-      [21.0, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
-      [22.0, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      // 街上看招牌 → 门开了往里走 → 左看柜台、正看窗和旗、右看壁炉 → 落到桌前
+      [0, [0, 46, 380], [0, 52, 147]],
+      [1.4, [0, 46, 366], [0, 50, 147]],
+      [3.8, [0, 44, 250], [0, 40, 100]],
+      [5.8, [0, 42, 160], [-6, 36, 40]],
+      [8.8, [-8, 46, 105], [-112, 34, -100]],
+      [11.9, [2, 47, 86], [0, 46, -190]],
+      [15.0, [16, 45, 70], [160, 36, -70]],
+      [17.8, [6, 40, 56], [0, 10, -20]],
+      [20.2, [2, 30, 32], [0, 0, 0]],
+      [22.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
+      [23.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
     ];
     const n = keys.length;
     const posCurve = new THREE.CatmullRomCurve3(keys.map((k) => new V3(...k[1])), false, 'centripetal');
@@ -204,7 +205,7 @@ export class Game {
           capShown = true;
           this.ui.showIntroCaption(true);
         }
-        if (!capHidden && t > 12) {
+        if (!capHidden && t > 12.6) {
           capHidden = true;
           this.ui.showIntroCaption(false);
         }
@@ -411,6 +412,7 @@ export class Game {
         this.audio.groan();
         this.audio.sting(false);
         this.ui.banner(t().bust, t().bustSub, 'bust', 2200);
+        this.tavern?.crowd?.react('bust');
         this.log((tt) => tt.logBust(tt.who(pi)));
         this.turn = 0;
         this.ui.updateHud({ turnScore: 0 });
@@ -421,6 +423,7 @@ export class Game {
       if (best.score >= 1000) {
         this.audio.cheer(best.score >= 2000);
         this.ui.banner(t().big, `${best.score}`, 'big', 1700);
+        this.tavern?.crowd?.react('big');
       }
 
       const choice = pi === 0 ? await this.humanChoose(P, pool, id) : await this.aiChoose(P, O, pool, id);

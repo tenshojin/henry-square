@@ -135,6 +135,16 @@ async function buildHtml() {
   const png = r('assets', 'icon-180.png');
   html = html.replace('__ICON_PNG__', () => (fs.existsSync(png) ? 'data:image/png;base64,' + fs.readFileSync(png).toString('base64') : ICON_DATA_URI));
   html = html.replace('/*__SCRIPT__*/', () => js.replace(/<\/script/gi, '<\\/script'));
+  // 模型（Blender 导出的 GLB、全景 HDR）以 base64 内嵌，双击打开的本地文件也能直接读
+  const modelDir = r('assets', 'models');
+  const tags = [];
+  for (const [id, file] of [['tavern', 'tavern.glb'], ['dicer', 'dicer.glb'], ['drinker', 'drinker.glb'], ['elder', 'elder.glb'], ['barmaid', 'barmaid.glb'], ['probe', 'probe.hdr']]) {
+    const p = path.join(modelDir, file);
+    if (fs.existsSync(p)) tags.push(`<script type="text/plain" id="asset-${id}">${fs.readFileSync(p).toString('base64')}</script>`);
+  }
+  const meta = path.join(modelDir, 'tavern.json');
+  if (fs.existsSync(meta)) tags.push(`<script type="application/json" id="asset-tavern-meta">${fs.readFileSync(meta, 'utf8')}</script>`);
+  html = html.replace('<div id="app"></div>', () => tags.join('\n') + '\n<div id="app"></div>');
   fs.writeFileSync(outFile, html);
 }
 

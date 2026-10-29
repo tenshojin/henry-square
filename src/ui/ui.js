@@ -79,25 +79,20 @@ function flourishSVG() {
     <circle cx="145" cy="13" r="1.8" fill="currentColor"/><circle cx="175" cy="13" r="1.8" fill="currentColor"/>
   </svg>`;
 }
-// 熟铁角件：L 形铁片 + 尖头 + 三颗铜钉
-const CORNER = `<svg viewBox="0 0 42 42" aria-hidden="true">
-  <path d="M3 3 H31 L39 7 L31 11 H11 V31 L7 39 L3 31 Z" fill="url(#iron)" stroke="rgba(0,0,0,.75)" stroke-width="1"/>
-  <path d="M4.5 4.5 H30 M4.5 4.5 V30" stroke="rgba(255,236,200,.22)" stroke-width="1" fill="none"/>
-  <circle cx="7" cy="7" r="2.4" fill="url(#rivet)"/><circle cx="22" cy="7" r="1.8" fill="url(#rivet)"/><circle cx="7" cy="22" r="1.8" fill="url(#rivet)"/>
-</svg>`;
+// 哥特花饰角：金色细线勾的卷草 + 小三叶
+const CORNER = `<svg viewBox="0 0 46 46" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round">
+  <path d="M3 30 V9 Q3 3 9 3 H30" stroke-width="1.3"/>
+  <path d="M7 34 V12 Q7 7 12 7 H34" stroke-width="0.6" opacity=".7"/>
+  <path d="M12 12 C 18 12, 22 16, 20 21 C 18 25, 13 23, 14 19 C 15 16, 19 17, 18.5 19.5" stroke-width="1"/>
+  <path d="M3 30 C 3 36, 6 40, 10 42" stroke-width="0.8" opacity=".8"/>
+  <path d="M30 3 C 36 3, 40 6, 42 10" stroke-width="0.8" opacity=".8"/>
+</g><path d="M3 3 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0" fill="currentColor"/>
+<path d="M24 3 l2.2 -2.2 2.2 2.2 -2.2 2.2z M3 24 l2.2 -2.2 2.2 2.2 -2.2 2.2z" fill="currentColor"/></svg>`;
 
-// 横幅：铁杆上挂一面纹章旗（布面 + 褶皱 + 金色滚边，下沿是燕尾尖）
-const RIBBON = { turn: 'wine', 'turn-opp': 'navy', big: 'gold', bust: 'ash', hot: 'green', '': 'wine' };
-function ribbonSVG(kind) {
-  const c = RIBBON[kind] || 'wine';
-  const trim = c === 'gold' ? '#6a4410' : '#e6bd6a';
-  const shape = 'M8 0 H592 V100 L300 136 L8 100 Z';
-  return `<svg class="ribbon" viewBox="0 0 600 136" preserveAspectRatio="none" aria-hidden="true">
-    <path d="${shape}" fill="url(#ban-${c})"/>
-    <path d="${shape}" fill="url(#ban-fold)"/>
-    <path d="M22 0 V92 L300 124 L578 92 V0" fill="none" stroke="${trim}" stroke-width="2" vector-effect="non-scaling-stroke" opacity=".85"/>
-    <path d="M30 0 V87 L300 118 L570 87 V0" fill="none" stroke="${trim}" stroke-width="1" vector-effect="non-scaling-stroke" opacity=".45"/>
-  </svg><i class="b-rod"></i>`;
+// 横幅：一条半透明暗带，上下两道金线从中间向两边展开，中间各一颗小菱形
+const RIBBON = {};
+function ribbonSVG() {
+  return '<div class="ribbon" aria-hidden="true"><i class="band"></i><i class="line t"></i><i class="line b"></i><i class="gem t"></i><i class="gem b"></i></div>';
 }
 
 export class UI {

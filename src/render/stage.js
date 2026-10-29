@@ -88,6 +88,8 @@ export class Stage {
       cache.clear();
     };
     this.composer.addPass(this.gtao);
+    // 酒馆的光照（含环境光遮蔽）已经在 Blender 里烘焙好了，屏幕空间 AO 默认关掉，免得重复变暗
+    this.gtao.enabled = false;
     // 阈值要高：只让火焰、烛光、窗户发光，不然整个画面都会被泛光糊一层
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.38, 0.45, 1.7);
     this.composer.addPass(this.bloom);

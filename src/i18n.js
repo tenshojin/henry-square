@@ -233,7 +233,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v2.0';
+export const VERSION = 'v3.0';
 
 export const i18n = {
   get lang() {

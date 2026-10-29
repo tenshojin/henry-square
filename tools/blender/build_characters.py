@@ -36,7 +36,7 @@ def build_all(export=True, names=NAMES, spacing=0.9):
         if export:
             path, size = chars_export.export_char(name, rig)
             report[name] = {'glb_mb': round(size / 1e6, 2), 'sec': round(time.time() - t0, 1)}
-            report[name].update({k: rep[k] for k in ('paint', 'arms', 'unpose_err') if k in rep})
+            report[name].update({k: rep[k] for k in ('paint', 'arms', 'unpose_err', 'sculpt') if k in rep})
         rig.location.x = (i - (len(names) - 1) / 2) * spacing
     if export:
         with open(META, 'w', encoding='utf8') as f:

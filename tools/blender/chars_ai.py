@@ -20,6 +20,12 @@ REF_SR = r'C:\blender\henry_square\reference\views_sr'   # Real-ESRGAN 放大过
 REF_FACE = r'C:\blender\henry_square\reference\views_face'   # 同上，正面的脸换成 GFPGAN 修复过的
 HEADS = r'C:\blender\henry_square\reference\heads'       # 头部特写（restore_faces.py）+ heads.json
 NORMALS = r'C:\blender\henry_square\reference\normals'   # Marigold 法线（normals_views.py）
+# v3.3 写实皮肤（skin_delight.py）：去掉照片自带光影的三视图/特写（游戏里的灯重新打光），和正面的材质图（R 皮肤、G 粗糙度）
+REF_ALB = r'C:\blender\henry_square\reference\views_albedo'
+HEADS_ALB = r'C:\blender\henry_square\reference\heads_albedo'
+MATS = r'C:\blender\henry_square\reference\views_mat'
+HEAD_MATS = r'C:\blender\henry_square\reference\heads_mat'
+SCULPT_DEBUG = os.environ.get('HENRY_SCULPT_DEBUG')       # 设了就把 sculpt_face 的中间数据存到这个目录（排查用）
 FACES = 60000                      # 减面后每人多少个面（身体）
 HEAD_FACES = 36000                 # 头部网格减面后
 HEAD_FRAC = 0.24                   # 头部特写从头顶往下占身高多少（和 restore_faces.py 一致）
@@ -117,7 +123,7 @@ def place(ob, zt, center):
 
 
 def ref_dir():
-    for d in (REF_FACE, REF_SR):
+    for d in (REF_ALB, REF_FACE, REF_SR):
         if os.path.isdir(d):
             return d
     return P.REF
@@ -428,6 +434,186 @@ def tangent_frame(pos, cover, idx, N, jump=0.02):
     return T, B * sg[:, None], ok
 
 
+def integrate_normals(n, fg):
+    """法线图（相机坐标：x 右、y 上、z 朝看图的人）积分成高度图（像素单位，朝看图的人为正）：Frankot–Chellappa，用 FFT 解泊松方程。"""
+    nz = np.clip(n[..., 2], 0.25, 1.0)
+    p = np.where(fg, -n[..., 0] / nz, 0.0)          # 高度沿列的斜率
+    q = np.where(fg, n[..., 1] / nz, 0.0)           # 沿行（往下）的斜率
+    H, W = p.shape
+    S = 2 * max(H, W)
+    Pp = np.zeros((S, S))
+    Qq = np.zeros((S, S))
+    Pp[:H, :W] = p
+    Qq[:H, :W] = q
+    w = np.fft.fftfreq(S) * 2 * np.pi
+    WX, WY = np.meshgrid(w, w)
+    den = WX ** 2 + WY ** 2
+    den[0, 0] = 1.0
+    Z = np.real(np.fft.ifft2((-1j * WX * np.fft.fft2(Pp) - 1j * WY * np.fft.fft2(Qq)) / den))[:H, :W]
+    return Z - Z[fg].mean()
+
+
+def front_head_coords(name, ob, head):
+    """每个顶点投到正面头部特写上的像素坐标（和 paint() 正面取色同一套对齐：整体对齐 → 轮廓微调 → 特写里再对一次头部轮廓）。
+    返回 (hx, hy, 特写上每米多少像素, 特写的 alpha)。"""
+    V = mesh_co(ob)
+    img = P.load_rgba(os.path.join(ref_dir(), name + '_front.png'))
+    s, cx, hc, r0, zt = P.align('front', img[..., 3], V)
+    sh, s, cx, r0, _ = refine_align('front', img[..., 3], V, s, cx, hc, r0, zt)
+    x = (P.hcoord('front', V) - hc) * sh + cx
+    y = (zt - V[:, 2]) * s + r0
+    with open(os.path.join(HEADS, 'heads.json'), encoding='utf8') as f:
+        cr = json.load(f)[name]['crops']['front']
+    k = cr['k']
+    hx, hy = (x - cr['c0']) * k, (y - cr['top']) * k
+    ha = P.load_rgba(os.path.join(HEADS, name + '_front.png'))[..., 3]
+    hsel = head['mask'] & (V[:, 2] > head['z_lo'] + 0.06)
+    fgh = ha > 0.5
+    ylo = float(np.percentile(hy[hsel], 99.5))
+    fgh[int(min(ylo, fgh.shape[0])):] = False
+    ddx, ddy, kk, ccx, ccy, _ = fit_points(hx[hsel], hy[hsel], fgh)
+    hx = (hx - ccx) * kk + ccx + ddx
+    hy = (hy - ccy) * kk + ccy + ddy
+    return hx, hy, s * k * kk, ha
+
+
+def sculpt_face(name, ob, head, gain=1.0, sigma=0.022, limit=0.012, report=None):
+    """让脸上的五官长在照片里对应的位置（不然照片里的鼻子阴影画在模型的脸颊上，看着像一张照片糊在面具上）。
+    正面头部特写的 Marigold 法线积分成浮雕（和照片逐像素对齐）。在脸的范围里（关键点圈出的整张脸 + 皮肤，朝前的部分）
+    目标形状 = 模型的大轮廓（比 sigma 大的起伏，额头、脸颊的弧度）+ 照片的五官层（比 sigma 小的）；
+    再加一个平滑的修正量让它在边界上和模型原来的形状接上（修正量在边界上等于差值、里面是调和插值，和修图里的无缝克隆一个道理）。
+    眼眶里照片把深色的眼珠当成了坑，用四周眼皮的起伏补平。顶点只沿前后方向移动：正面投影取色的位置不变，颜色和形状正好对上。"""
+    hn_path = os.path.join(NORMALS, 'head_%s_front.npy' % name)
+    mpath = os.path.join(HEAD_MATS, name + '_front.png')
+    fpath = os.path.join(HEAD_MATS, name + '_face.png')
+    if head is None or not all(os.path.exists(p) for p in (hn_path, mpath, fpath)):
+        return None
+    me = ob.data
+    me.update()
+    V = mesh_co(ob)
+    Nv = np.empty(len(V) * 3)
+    me.vertices.foreach_get('normal', Nv)
+    Nv = Nv.reshape(-1, 3)
+    hx, hy, ppm, ha = front_head_coords(name, ob, head)
+    fg = ha > 0.5
+    Hh, Ww = fg.shape
+    mat = P.load_rgba(mpath)
+    Zm = integrate_normals(np.load(hn_path).astype(np.float64), fg) * gain / ppm      # 照片浮雕（米）
+    eye = blur(((mat[..., 1] < 0.2) & (mat[..., 3] > 0.5)).astype(np.float64), 2) > 0.05
+    Zm = np.where(eye, P.pull_push(np.where(eye, 0.0, Zm)[..., None], (~eye).astype(np.float64))[..., 0], Zm)
+    # 模型朝正面相机的深度，铺成特写像素格子上的一张深度图（只取朝前、最前面那层顶点）
+    depth = -V[:, 1]
+    ff = -Nv[:, 1]
+    xi = np.clip(np.round(hx).astype(np.int64), 0, Ww - 1)
+    yi = np.clip(np.round(hy).astype(np.int64), 0, Hh - 1)
+    cand = head['mask'] & (hx >= 0) & (hx < Ww) & (hy >= 0) & (hy < Hh) & (ff > 0.15)
+    buf = np.full((Hh, Ww), -np.inf)
+    np.maximum.at(buf, (yi[cand], xi[cand]), depth[cand])
+    for _ in range(3):                               # 顶点比像素稀：空格子取周围的最前值
+        b2 = buf.copy()
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                b2 = np.maximum(b2, np.roll(np.roll(buf, di, 0), dj, 1))
+        buf = np.where(np.isfinite(buf), buf, b2)
+    vis = cand & (depth > buf[yi, xi] - 0.004)
+    Ds = np.zeros((Hh, Ww))
+    Fs = np.zeros((Hh, Ww))
+    Ws = np.zeros((Hh, Ww))
+    np.add.at(Ds, (yi[vis], xi[vis]), depth[vis])
+    np.add.at(Fs, (yi[vis], xi[vis]), ff[vis])
+    np.add.at(Ws, (yi[vis], xi[vis]), 1.0)
+    wb = blur(Ws, 3)
+    valid = wb > 0.02
+    Dm = np.where(valid, blur(Ds, 3) / np.maximum(wb, 1e-9), 0.0)
+    Fm = blur(Fs, 3) / np.maximum(wb, 1e-9)
+    # 范围：整张脸（关键点凸包）+ 皮肤，补上小洞；只要朝前的（侧面浮雕不准），边上往里收一点
+    face = P.load_rgba(fpath)[..., 0] > 0.5
+    reg = blur(((mat[..., 0] > 0.3) | face).astype(np.float64), 10) > 0.25
+    om = blur((reg & valid & (Fm > 0.45)).astype(np.float64), 3) > 0.97
+    if om.sum() < 500:
+        return None
+    r = max(2, int(round(sigma * ppm)))
+    vf = valid.astype(np.float64)
+    nc = lambda a: blur(a * vf, r) / np.maximum(blur(vf, r), 1e-9)       # 只在模型有的地方求平均
+    T = nc(Dm) + (Zm - nc(Zm))
+    C = np.where(valid & ~om, Dm - T, 0.0)
+    C = P.pull_push(C[..., None], (valid & ~om).astype(np.float64))[..., 0]
+    for _ in range(400):
+        Cn = 0.25 * (np.roll(C, 1, 0) + np.roll(C, -1, 0) + np.roll(C, 1, 1) + np.roll(C, -1, 1))
+        C = np.where(om, Cn, C)
+    Dn = np.where(om, T + C, Dm)
+    diff = blur((Dn - Dm) * blur(om.astype(np.float64), 8), 1)
+    diff = limit * np.tanh(diff / limit)               # 软限幅：最多前后移动 limit
+    # 顶点按差值移动；离最前层太远的（嘴里、耳后）不动；往侧面渐渐不动
+    move = cand & (depth > buf[yi, xi] - 0.015)
+    dv = np.where(move, P.bilinear(diff[..., None], hx, hy)[:, 0], 0.0) * smoothstep((ff - 0.15) / 0.2)
+    V2 = V.copy()
+    V2[:, 1] = -(depth + dv)
+    set_co(ob, V2)
+    sel = np.abs(dv) > 1e-5
+    out = dict(verts=int(sel.sum()), move_mm=round(float(np.abs(dv[sel]).mean() * 1000), 2) if sel.any() else 0,
+               max_mm=round(float(np.abs(dv).max() * 1000), 1), region_px=int(om.sum()))
+    if SCULPT_DEBUG:
+        np.savez_compressed(os.path.join(SCULPT_DEBUG, name + '_sculpt.npz'), hx=hx, hy=hy, depth=depth, ff=ff, vis=vis,
+                            Z=Zm * ppm, ppm=ppm, dv=dv, Dm=Dm, Dn=Dn, om=om)
+    if report is not None:
+        report['sculpt'] = out
+    return out
+
+
+def fill3d(X, vals, good, vox):
+    """没看到的像素（~good）按三维位置补值：vox 大小的格子记下看到的，空格子从周围一圈圈往外补，再抹匀几遍，最后三线性插值。"""
+    vals = vals.copy()
+    C = vals.shape[1]
+    key = np.floor((X - X.min(0)) / vox).astype(np.int64)
+    dims = key.max(0) + 1
+    G = np.zeros(tuple(dims) + (C,))
+    Gw = np.zeros(tuple(dims))
+    kg = key[good]
+    np.add.at(G, (kg[:, 0], kg[:, 1], kg[:, 2]), vals[good])
+    np.add.at(Gw, (kg[:, 0], kg[:, 1], kg[:, 2]), 1.0)
+    Cg = G / np.maximum(Gw, 1)[..., None]
+    M = (Gw > 0).astype(np.float64)
+    for _ in range(30):
+        if M.all() or not (~good).any():
+            break
+        S = np.zeros_like(Cg)
+        Sm = np.zeros_like(M)
+        for ax in range(3):
+            for sh in (-1, 1):
+                S += np.roll(Cg * M[..., None], sh, ax)
+                Sm += np.roll(M, sh, ax)
+        new = (M == 0) & (Sm > 0)
+        if not new.any():
+            break
+        Cg[new] = S[new] / Sm[new][:, None]
+        M[new] = 1
+    # 再抹匀几遍（只在有值的格子之间），补出来的地方不会是一块块 1 厘米的方格
+    for _ in range(3):
+        S = Cg * M[..., None]
+        Sm = M.copy()
+        for ax in range(3):
+            for sh in (-1, 1):
+                S += np.roll(Cg * M[..., None], sh, ax)
+                Sm += np.roll(M, sh, ax)
+        Cg = np.where(M[..., None] > 0, S / np.maximum(Sm, 1)[..., None], Cg)
+    # 三线性插值（格子中心之间平滑过渡）
+    fk = (X[~good] - X.min(0)) / vox - 0.5
+    k0 = np.clip(np.floor(fk).astype(np.int64), 0, np.maximum(dims - 2, 0))
+    t = np.clip(fk - k0, 0, 1)
+    out = np.zeros((len(fk), C))
+    wtot = np.zeros(len(fk))
+    for o in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1), (1, 1, 1)):
+        kk = np.minimum(k0 + np.array(o), dims - 1)
+        wc = np.prod(np.where(np.array(o) == 1, t, 1 - t), axis=1) * M[kk[:, 0], kk[:, 1], kk[:, 2]]
+        out += Cg[kk[:, 0], kk[:, 1], kk[:, 2]] * wc[:, None]
+        wtot += wc
+    ku = key[~good]
+    near = Cg[ku[:, 0], ku[:, 1], ku[:, 2]]
+    vals[~good] = np.where(wtot[:, None] > 1e-6, out / np.maximum(wtot, 1e-6)[:, None], near)
+    return vals
+
+
 def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox=0.01, relief=1.7):
     """三视图投影上色（ob 现在就是设定图的站姿）。遮挡用深度缓冲：每个视图把所有贴图像素按离相机远近记下最前面的，
     比它靠后 tol 以上的就是被挡住了。哪个视图都没看到的像素，按三维位置从附近看到的像素取色。
@@ -448,6 +634,8 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
     acc = np.zeros((len(X), 3))
     dacc = np.zeros((len(X), 3))
     wsum = np.zeros(len(X))
+    macc = np.zeros((len(X), 3))        # 材质图（只从正面取：侧面、背面认不准哪里是皮肤）
+    mwsum = np.zeros(len(X))
     info = {}
     ref = ref_dir()
     crops = None
@@ -488,6 +676,8 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
             y = y + Fw[yi, xi, 0]
             x = x + Fw[yi, xi, 1]
         smp = P.bilinear(img, x, y)
+        mpath = os.path.join(MATS, name + '_front.png')
+        msmp = P.bilinear(P.load_rgba(mpath), x, y) if view == 'front' and os.path.exists(mpath) else None
         edge = np.clip(edge_depth(img[..., 3], 6)[np.clip(y.astype(np.int64), 0, Hh - 1), np.clip(x.astype(np.int64), 0, Ww - 1)] / 5, 0, 1)
         nimg = load_normals('view', name, fname, flip)
         nsm = None
@@ -500,7 +690,8 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
             k = cr['k']
             c0 = cr['c0'] if not flip else Ww - cr['c1']
             hx, hy = (x - c0) * k, (y - cr['top']) * k
-            himg = P.load_rgba(os.path.join(HEADS, '%s_%s.png' % (name, fname)), flip)
+            hpath = os.path.join(HEADS_ALB, '%s_%s.png' % (name, fname))
+            himg = P.load_rgba(hpath if os.path.exists(hpath) else os.path.join(HEADS, '%s_%s.png' % (name, fname)), flip)
             # 头部网格就是照这张特写生成的：只拿头部（接缝以上）和特写里同一段的轮廓再对一次齐（整体平移、缩放）
             hsel = X[:, 2] > head['z_lo'] + 0.06     # 下巴以上：这一段头部网格是完整的（没被圆柱切过）
             fgh = himg[..., 3] > 0.5
@@ -512,6 +703,9 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
             info['head_' + view] = round(float(hiou), 3)
             inh = (X[:, 2] > head['z_lo'] - 0.01) & (hx >= 0) & (hx < himg.shape[1] - 1) & (hy >= 0) & (hy < himg.shape[0] - 1)
             smp[inh] = P.bilinear(himg, hx[inh], hy[inh])
+            hmpath = os.path.join(HEAD_MATS, name + '_front.png')
+            if msmp is not None and os.path.exists(hmpath):
+                msmp[inh] = P.bilinear(P.load_rgba(hmpath), hx[inh], hy[inh])
             he = edge_depth(himg[..., 3], 12)
             edge[inh] = np.clip(he[hy[inh].astype(np.int64), hx[inh].astype(np.int64)] / 10, 0, 1)
             hn = load_normals('head', name, fname, flip)
@@ -525,6 +719,9 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
             w = w * np.where(X[:, 2] > head['z_lo'], 1 - smoothstep((ff - 0.25) / 0.35), 1.0)
         acc += smp[:, :3] * w[:, None]
         wsum += w
+        if msmp is not None:
+            macc += msmp[:, :3] * w[:, None]
+            mwsum += w
         if nsm is not None:
             R_img, U_img = (np.array(v, dtype=np.float64) for v in IMG_AXES[view])
             dw = nsm[:, 0:1] * R_img + nsm[:, 1:2] * U_img
@@ -545,53 +742,7 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
         good = np.where(hp, (wsum > 1e-4) & ~crown, good)
     colv = np.zeros((len(X), 3))
     colv[good] = acc[good] / wsum[good][:, None]
-    # 1 厘米的格子：看到的像素记进格子，空格子从周围一圈圈往外补
-    key = np.floor((X - X.min(0)) / vox).astype(np.int64)
-    dims = key.max(0) + 1
-    G = np.zeros(tuple(dims) + (3,))
-    Gw = np.zeros(tuple(dims))
-    kg = key[good]
-    np.add.at(G, (kg[:, 0], kg[:, 1], kg[:, 2]), colv[good])
-    np.add.at(Gw, (kg[:, 0], kg[:, 1], kg[:, 2]), 1.0)
-    Cg = G / np.maximum(Gw, 1)[..., None]
-    M = (Gw > 0).astype(np.float64)
-    for _ in range(30):
-        if M.all() or not (~good).any():
-            break
-        S = np.zeros_like(Cg)
-        Sm = np.zeros_like(M)
-        for ax in range(3):
-            for sh in (-1, 1):
-                S += np.roll(Cg * M[..., None], sh, ax)
-                Sm += np.roll(M, sh, ax)
-        new = (M == 0) & (Sm > 0)
-        if not new.any():
-            break
-        Cg[new] = S[new] / Sm[new][:, None]
-        M[new] = 1
-    # 再抹匀几遍（只在有颜色的格子之间），补出来的地方不会是一块块 1 厘米的方格
-    for _ in range(3):
-        S = Cg * M[..., None]
-        Sm = M.copy()
-        for ax in range(3):
-            for sh in (-1, 1):
-                S += np.roll(Cg * M[..., None], sh, ax)
-                Sm += np.roll(M, sh, ax)
-        Cg = np.where(M[..., None] > 0, S / np.maximum(Sm, 1)[..., None], Cg)
-    # 三线性插值取色（格子中心之间平滑过渡）
-    fk = (X[~good] - X.min(0)) / vox - 0.5
-    k0 = np.clip(np.floor(fk).astype(np.int64), 0, np.maximum(dims - 2, 0))
-    t = np.clip(fk - k0, 0, 1)
-    out = np.zeros((len(fk), 3))
-    wtot = np.zeros(len(fk))
-    for o in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1), (1, 1, 1)):
-        kk = np.minimum(k0 + np.array(o), dims - 1)
-        wc = np.prod(np.where(np.array(o) == 1, t, 1 - t), axis=1) * M[kk[:, 0], kk[:, 1], kk[:, 2]]
-        out += Cg[kk[:, 0], kk[:, 1], kk[:, 2]] * wc[:, None]
-        wtot += wc
-    ku = key[~good]
-    near = Cg[ku[:, 0], ku[:, 1], ku[:, 2]]
-    colv[~good] = np.where(wtot[:, None] > 1e-6, out / np.maximum(wtot, 1e-6)[:, None], near)
+    colv = fill3d(X, colv, good, vox)
     col = np.zeros((size, size, 3), dtype=np.float32)
     wt = np.zeros((size, size), dtype=np.float32)
     col[idx] = colv.astype(np.float32)
@@ -610,17 +761,42 @@ def paint(name, ob, size=2048, report=None, head=None, cell=0.002, tol=0.01, vox
         nrm_img = P.save_image(name + '_ai_n', nmap, size)
     else:
         nrm_img = P.save_image(name + '_ai_n', P.height_normal(filled, 2.0), size)
+    # 材质图：R = 皮肤（游戏里做次表面散射和皮肤高光）、G = 粗糙度（眼睛、嘴唇、T 区更光）、B = 0
+    mat_img = None
+    if mwsum.any():
+        mgood = mwsum > 0.02
+        matv = np.zeros((len(X), 3))
+        matv[mgood] = macc[mgood] / mwsum[mgood][:, None]
+        matv = fill3d(X, matv, mgood, vox)
+        bad = matv[:, 1] < 0.05                       # 补不到的（离正面看到的地方太远）：当衣服
+        matv[bad] = (0.0, 0.86, 0.0)
+        mm = np.zeros((size, size, 3), dtype=np.float32)
+        mm[idx] = matv.astype(np.float32)
+        mat_img = P.save_image(name + '_ai_m', P.pull_push(mm, wt), size)
+        mat_img.colorspace_settings.name = 'Non-Color'
     mat = P.outfit_material(name + '.ai', col_img, nrm_img)
-    # 设定图本身已带着光影，材质要哑一点，免得酒馆的灯在皮衣上打出一片片亮斑
+    # 衣服：设定图本身带着光影，材质要哑一点，免得酒馆的灯在皮衣上打出一片片亮斑
     b = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
     b.inputs['Roughness'].default_value = 0.86
     b.inputs['Specular IOR Level'].default_value = 0.2
     if has_n:
         next(n for n in mat.node_tree.nodes if n.type == 'NORMAL_MAP').inputs['Strength'].default_value = 1.0
+    if mat_img is not None:
+        # 粗糙度接材质图的 G、金属度接 B（全是 0）：两个都从同一张图的对应通道来，导出 GLB 时整张图原样当
+        # metallicRoughness 贴图（R 通道的皮肤遮罩跟着进游戏）；只接粗糙度的话，导出插件会把 R、B 填成白色
+        nt = mat.node_tree
+        tm = nt.nodes.new('ShaderNodeTexImage')
+        tm.image = mat_img
+        nt.links.new(next(n for n in nt.nodes if n.type == 'UVMAP').outputs['UV'], tm.inputs['Vector'])
+        sep = nt.nodes.new('ShaderNodeSeparateColor')
+        nt.links.new(tm.outputs['Color'], sep.inputs['Color'])
+        nt.links.new(sep.outputs['Green'], b.inputs['Roughness'])
+        nt.links.new(sep.outputs['Blue'], b.inputs['Metallic'])
     ob.data.materials.clear()
     ob.data.materials.append(mat)
     if report is not None:
-        report['paint'] = dict(texels=int(len(X)), seen=round(float(good.mean()), 3), iou=info, normals=has_n)
+        report['paint'] = dict(texels=int(len(X)), seen=round(float(good.mean()), 3), iou=info, normals=has_n,
+                               skin=round(float((matv[:, 0] > 0.5).mean()), 3) if mat_img is not None else None)
     return filled
 
 
@@ -1215,6 +1391,7 @@ def build_one(name, x=0.0, report=None, size=2048):
         W, names = weights(ai)
         head = dict(mask=W[:, names.index('headpart')] > 0.5, z_lo=z_lo, z_mouth=z_mouth)
         ai.vertex_groups.remove(ai.vertex_groups['headpart'])
+        sculpt_face(name, ai, head, report=rep)
     filled = paint(name, ai, size, rep, head=head)
     # 骨架的手臂对准 AI 网格的手臂，代理也按这个姿势重做一遍再传权重
     P.pose_ref(rig, name)

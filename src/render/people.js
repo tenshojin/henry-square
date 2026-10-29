@@ -86,6 +86,35 @@ function twoBoneIK(upper, lower, hand, T, pole, w) {
   rotateWorld(lower, _q1);
 }
 
+// 写实皮肤（v3.3）：AI 人物材质的 metallicRoughness 贴图里 R 通道是皮肤遮罩、G 是粗糙度（眼睛、嘴唇、T 区更光）。
+// 皮肤上：灯光的漫反射往背光面“包”过去一点，红色包得最多（光在皮肤里散开，明暗交界发红、不发灰）；高光按真人皮肤的强度。
+// 眼睛、嘴唇不算皮肤，但粗糙度低，也给正常高光（眼睛里有反光点才像活人）。whole = 整个材质都是皮肤（手）
+const SKIN_WRAP = 'vec3( 0.55, 0.28, 0.16 )';
+function skinShader(m, whole) {
+  m.onBeforeCompile = (sh) => {
+    const pars = THREE.ShaderChunk.lights_physical_pars_fragment
+      .replace('vec3 irradiance = dotNL * directLight.color;', `vec3 irradiance = dotNL * directLight.color;
+	vec3 wrapW = ${SKIN_WRAP} * gSkin;
+	vec3 irradianceD = saturate( ( vec3( dot( geometryNormal, directLight.direction ) ) + wrapW ) / ( 1.0 + wrapW ) ) * directLight.color;`)
+      .replace('reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
+        'reflectedLight.directDiffuse += irradianceD * BRDF_Lambert( material.diffuseColor );');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <lights_physical_pars_fragment>', 'float gSkin = 0.0;\n' + pars)
+      .replace('#include <roughnessmap_fragment>', whole ? '#include <roughnessmap_fragment>\n\tgSkin = 1.0;' : `#include <roughnessmap_fragment>
+	#ifdef USE_ROUGHNESSMAP
+		gSkin = texelRoughness.r;
+	#endif`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+	{
+		float wet = 1.0 - smoothstep( 0.18, 0.32, roughnessFactor );
+		float k = max( gSkin, wet );
+		material.specularColor = mix( material.specularColor, vec3( 0.032 ), k );
+		material.specularF90 = mix( material.specularF90, 1.0, k );
+	}`);
+  };
+  m.customProgramCacheKey = () => (whole ? 'skin-whole' : 'skin-map');
+}
+
 function setupMaterials(root) {
   const morphMeshes = [];
   root.traverse((o) => {
@@ -108,6 +137,11 @@ function setupMaterials(root) {
       m.side = THREE.DoubleSide;
     }
     if (n.includes('skin')) m.roughness = 0.5;
+    if (n.endsWith('.ai') && m.roughnessMap) {
+      m.metalness = 0;        // 贴图的 B 通道本该全是 0，WebP 压缩后有一点噪点
+      skinShader(m, false);
+    }
+    else if (n.includes('skin_hands')) skinShader(m, true);
     m.envMapIntensity = 1.0;
     if (o.morphTargetDictionary) morphMeshes.push(o);
   });

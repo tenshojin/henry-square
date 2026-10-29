@@ -268,7 +268,8 @@ def pose_walk(rig, m, st, ph, step, tray=None):
         y, lift, pitch, toe = gait((ph + off) % 1.0, step)
         leg_ik(rig, s, (0.11 * sx, y, m['ankle_h'] + lift), (0.04 * sx, -1, 0.0))
         foot(rig, s, pitch=pitch, toe=toe)
-    spine(rig, lean=0.03, twist=0.08 * fwd_l, stoop=st.get('stoop', 0.0))
+    # 骨盆随步子左右转，胸口反着扭回来；头再按同样的量转回去，保持朝前（原来头被多扭了一次，每一步都左右摇头）
+    spine(rig, lean=0.03, twist=0.08 * fwd_l, head=(0.08 * fwd_l, 0.0), stoop=st.get('stoop', 0.0))
     if tray is None:
         arms_down(rig, swing=-0.34 * st.get('arm_swing', 1.0) * fwd_l, bend=0.05)
         fingers(rig, 0.9)
@@ -356,9 +357,10 @@ def make_idle(rig, m, st, name, period=4.4, seed=0.0, tray=None):
     for k in range(n + 1):
         ph = 2 * math.pi * k / n
         b = math.sin(ph)
-        sw = math.sin(ph * 0.5 + seed) * 0.8
+        # 全都用整周期的正弦：循环首尾接得上（原来用半周期，每循环一次头和重心都会跳一下）；头的摆动也小一些
+        sw = math.sin(ph + seed) * 0.6
         def f(b=b, sw=sw, ph=ph):
-            pose_stand(rig, m, st, breath=b, sway=sw, look=(0.08 * math.sin(ph * 0.5 + seed * 1.7), 0.02 * math.sin(ph + seed)))
+            pose_stand(rig, m, st, breath=b, sway=sw, look=(0.035 * math.sin(ph + seed * 1.7), 0.012 * math.sin(2 * ph + seed)))
             if tray is not None:
                 tray_arms(rig, tray + 0.004 * b)
                 fingers(rig, 0.4)
@@ -387,7 +389,7 @@ def make_sit_idle(rig, m, st, name, hands, period=4.0, seed=0.0):
         ph = 2 * math.pi * k / n
         b = math.sin(ph)
         def f(b=b, ph=ph):
-            pose_sit(rig, m, st, hands=hands, breath=b, look=(0.05 * math.sin(ph * 0.5 + seed * 1.7), 0.02 * math.sin(ph + seed)))
+            pose_sit(rig, m, st, hands=hands, breath=b, look=(0.025 * math.sin(ph + seed * 1.7), 0.01 * math.sin(2 * ph + seed)))
         keys.append((period * k / n, f))
     return record(rig, name, keys)
 

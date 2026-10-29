@@ -38,9 +38,24 @@ function wpos(o, out = new V3()) {
   return o.getWorldPosition(out);
 }
 
+// 动作播完之后再改骨骼（转头、IK）：先记下骨骼原来的旋转，下一帧播动作前还原。
+// three.js 的动画混合器只在动作算出来的值和上一帧不同的时候才写回骨骼：值没变的那几帧，
+// 骨骼还停在上一帧“转过头”的位置，转头再叠一次 —— 头就在“转满”和“转一部分”之间来回晃（摇头丸）
+const _dirty = new Set();
+function keep(bone) {
+  if (_dirty.has(bone)) return;
+  (bone.userData.q0 || (bone.userData.q0 = new Q())).copy(bone.quaternion);
+  _dirty.add(bone);
+}
+function restoreBones() {
+  for (const b of _dirty) b.quaternion.copy(b.userData.q0);
+  _dirty.clear();
+}
+
 // 把骨骼在世界空间里转一个角度 q（转完写回局部旋转）。用自己的临时变量，调用方传进来的 q 不会被改掉
 const _rp = new Q(), _rb = new Q();
 function rotateWorld(bone, q) {
+  keep(bone);
   bone.parent.getWorldQuaternion(_rp);
   bone.getWorldQuaternion(_rb);
   _rb.premultiply(q);
@@ -282,9 +297,9 @@ class Actor {
     this.root.rotation.set(0, this.yaw, 0);
   }
 
-  // 头转向目标：限制角度，平滑跟随；脖子分担一部分。
+  // 头转向目标：限制角度（最多约 30°），慢慢跟过去，只转一部分（权重 0.15–0.55）；脖子分担一部分。
   // 目标在身后（和身体朝向水平夹角超过 100°）就不看：那时要转的方向几乎反过来，算出来的转轴每帧乱跳，头会抖
-  lookAt(target, w, dt, rate = 2) {
+  lookAt(target, w, dt, rate = 1.1) {
     const head = this.bone('head');
     if (!head || !this.headFwd) return;
     if (target) {
@@ -301,7 +316,7 @@ class Actor {
       this.look.y = damp(this.look.y, target.y, rate, dt);
       this.look.z = damp(this.look.z, target.z, rate, dt);
     }
-    this.lookW = damp(this.lookW, target ? w : 0, 2.5, dt);
+    this.lookW = damp(this.lookW, target ? w : 0, 1.2, dt);
     if (this.lookW < 0.01) return;
     head.updateWorldMatrix(true, false);
     const hp = wpos(head, _a);
@@ -309,7 +324,7 @@ class Actor {
     head.getWorldQuaternion(_q1);
     const cur = _c.copy(this.headFwd).applyQuaternion(_q1).normalize();
     const ang = cur.angleTo(want);
-    const lim = 0.7;
+    const lim = 0.5;
     // 总共要转的量：朝目标转，最多转 lim（超过就停在 lim，沿同一个轴，角度连续）。
     // （原来写成 want.copy(cur).lerp(want, …)，先把 want 覆盖成了 cur，超过上限时一点都不转；
     //  目标正好在上限附近时，头每帧在“转满”和“不转”之间来回跳 —— 这就是人物的鬼畜抖动）
@@ -925,8 +940,9 @@ export async function buildPeople(scene, world, { audio } = {}) {
     timers.laugh -= dt;
     throwT = allCups.some(([o, r]) => o.position.distanceTo(r) > 0.15) ? 0 : throwT + dt;
     if (timers.drink <= 0 && throwT > 1.5) {
-      // 正在投骰子时不喝（手和杯子不会在桌边晃进画面）
-      const cands = list.filter((a) => seatedIdle(a) && a.seat !== opp && mugs[a.seat.name] && a.act.drink);
+      // 正在投骰子时不喝；对局中坐在牌桌两侧的人也不喝（一口酒 3 秒多，手和杯子会伸进牌桌画面的边上），后面那桌照喝
+      const nearBoard = (a) => match && (a.seat === seats.left || a.seat === seats.right);
+      const cands = list.filter((a) => seatedIdle(a) && a.seat !== opp && mugs[a.seat.name] && a.act.drink && !nearBoard(a));
       if (cands.length) {
         const a = cands[Math.floor(Math.random() * cands.length)];
         a.oneShot = { name: 'drink', t: 0, dur: a.once('drink', 0.45) };
@@ -942,6 +958,7 @@ export async function buildPeople(scene, world, { audio } = {}) {
       timers.laugh = 20 + Math.random() * 15;
     }
 
+    restoreBones();
     for (const a of list) {
       a.place();
       a.updateAnim(dt);
@@ -961,17 +978,17 @@ export async function buildPeople(scene, world, { audio } = {}) {
     const moverHead = mover && mover.bone('head') ? wpos(mover.bone('head'), new V3()) : null;
     for (const a of list) {
       if (a === oppA) {
-        if (cup && cupW > 0.3) a.lookAt(cup.position, 0.8, dt, 2.5);
-        else if (moverHead && mover !== a && mover.pos.distanceTo(a.pos) < 2.2 * UNIT) a.lookAt(moverHead, 0.7, dt);
-        else if (glance > 0.55 && glance < 0.78) a.lookAt(boardUp, 0.8, dt);
-        else a.lookAt(cam.position, 0.75, dt);
+        if (cup && cupW > 0.3) a.lookAt(cup.position, 0.55, dt, 1.6);
+        else if (moverHead && mover !== a && mover.pos.distanceTo(a.pos) < 2.2 * UNIT) a.lookAt(moverHead, 0.45, dt);
+        else if (glance > 0.55 && glance < 0.78) a.lookAt(boardUp, 0.5, dt);
+        else a.lookAt(cam.position, 0.5, dt);
       } else if (a.state === 'seated') {
         const drinking = a.oneShot && a.oneShot.name === 'drink';
         const g2 = (t * 0.05 + a.name.length * 0.13) % 1;
         const tgt = drinking ? null : moverHead && mover !== a && mover.pos.distanceTo(a.pos) < 2.5 * UNIT ? moverHead : g2 < 0.6 ? board : oppHead;
-        a.lookAt(tgt, 0.7, dt);
+        a.lookAt(tgt, 0.4, dt);
       } else if (a.state === 'serve') {
-        a.lookAt(board, a.serve.wait > 0 ? 0.6 : 0.3, dt);
+        a.lookAt(board, a.serve.wait > 0 ? 0.35 : 0.15, dt);
       } else a.lookAt(null, 0, dt);
     }
     placeMugs();

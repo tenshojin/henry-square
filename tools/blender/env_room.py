@@ -217,7 +217,10 @@ def door_and_street(m):
     ring = U.ring_pts((d0 + 0.14, Y0 - WALL_T / 2 + 0.045, 1.05), 0.04, 12, axis='x')
     parts.append(U.tube('door_ring', ring + [ring[0]], 0.006, m['iron'], 'door'))
     door = U.join(parts, 'door')
-    # 原点放在铰链上
+    # 原点放在铰链上。合并后的物体带着第一块木板的位置和旋转：先把它烘进网格（物体变换归零），
+    # 再把网格平移到以铰链为原点（原来直接平移，门被转到墙里、地板下面，门洞是空的）
+    door.data.transform(door.matrix_basis)
+    door.matrix_basis = Matrix.Identity(4)
     off = hinge.copy()
     door.data.transform(Matrix.Translation(-off))
     door.location = off

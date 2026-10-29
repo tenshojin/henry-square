@@ -11,6 +11,8 @@ import { MENU_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js
 import { OPPONENT_OF } from '../render/people.js';
 import { i18n } from '../i18n.js';
 
+const DOOR_AXIS = new THREE.Vector3(0, 1, 0);
+
 export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 8000 };
 const ROW_Y = TABLE_Y + 0.5;
 const V3 = THREE.Vector3;
@@ -111,8 +113,13 @@ export class Game {
     this.stage.camMode = 'menu';
   }
 
+  // 门绕竖直的门轴往里转 f × 86°。门从 Blender 导出时自带一个朝向（合并木板时带进来的旋转），
+  // 要在它上面再转；原来直接改 rotation.y，把自带的朝向覆盖了，门从一开始就横着卡在墙里，门洞是空的
   openDoor(f) {
-    if (this.tavern?.door) this.tavern.door.rotation.y = -1.5 * f;
+    const d = this.tavern?.door;
+    if (!d) return;
+    if (!d.userData.closedQ) d.userData.closedQ = d.quaternion.clone();
+    d.quaternion.setFromAxisAngle(DOOR_AXIS, -1.5 * f).multiply(d.userData.closedQ);
   }
 
   // 开场：站在正门外 → 推开门 → 先看左边吧台、再看正面拱窗、右边壁炉 → 走到游戏桌前坐下，看着对面的对手

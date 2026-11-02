@@ -1,0 +1,99 @@
+{
+ "fps": 32,
+ "size": [
+  1280,
+  640
+ ],
+ "xf": 6,
+ "codec": "video/mp4; codecs=\"av01.0.08M.10\"",
+ "clips": {
+  "arrive_barmaid": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "arrive_dicer": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "arrive_drinker": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "arrive_elder": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "idle_barmaid": {
+   "frames": 123,
+   "dur": 3.844
+  },
+  "idle_dicer": {
+   "frames": 123,
+   "dur": 3.844
+  },
+  "idle_drinker": {
+   "frames": 123,
+   "dur": 3.844
+  },
+  "idle_elder": {
+   "frames": 123,
+   "dur": 3.844
+  },
+  "intro_a": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "intro_b": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "leave_barmaid": {
+   "frames": 129,
+   "dur": 4.031
+  },
+  "leave_dicer": {
+   "frames": 129,
+   "dur": 4.031
+  },
+  "leave_drinker": {
+   "frames": 129,
+   "dur": 4.031
+  },
+  "leave_elder": {
+   "frames": 129,
+   "dur": 4.031
+  },
+  "tilt_down_barmaid": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_down_dicer": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_down_drinker": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_down_elder": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_up_barmaid": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_up_dicer": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_up_drinker": {
+   "frames": 97,
+   "dur": 3.031
+  },
+  "tilt_up_elder": {
+   "frames": 97,
+   "dur": 3.031
+  }
+ }
+}

@@ -8,7 +8,7 @@ import { createHearthFire, makeCandleFlameMaterial, createDust } from './fire.js
 import { canvasTexture, leatherTexture } from './canvasTex.js';
 import { beamWood, pbr } from './ptex.js';
 import * as P from './props.js';
-import { coinStack, coinPurse, makeCoin } from './coins.js';
+import { loadGroschen, groschenStack, groschenPurse, makeGroschen, G_H } from './groschen.js';
 
 export const UNIT = 50; // 1 米 = 50 个游戏单位（骰子、骰盘、物理都按这个尺度）
 export const FLOOR_Y = -38;
@@ -108,7 +108,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   scene.fog = new THREE.FogExp2('#120c08', 0.0012);
 
   const meta = assetJSON('tavern-meta') || { k: 0.25 };
-  const lm = { uLM: { value: meta.k * 1.35 } };
+  const lm = { uLM: { value: meta.k * 0.86 } }; // v3.4 从 1.35 调暗（桌面木头太红太亮；第二轮 1.08 → 0.86）
   const gltf = await loadGLB('tavern');
   const root = gltf.scene;
   root.scale.setScalar(UNIT);
@@ -179,6 +179,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   spot.shadow.bias = -0.0002;
   spot.shadow.normalBias = 0.02;
   spot.shadow.radius = 4;
+  spot.userData.base = 12000;
   scene.add(spot, spot.target);
   lights.spot = spot;
   const candle = Object.entries(markers).find(([n]) => n.includes('table_candle'));
@@ -197,25 +198,35 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
 
   updaters.push((dt, t) => {
     if (lights.fire) lights.fire.intensity = 26000 * (0.82 + Math.sin(t * 7.3) * 0.06 + Math.sin(t * 13.1) * 0.05 + Math.sin(t * 2.1) * 0.07);
-    spot.intensity = 16000 * (0.96 + Math.sin(t * 9.7) * 0.02 + Math.sin(t * 4.1) * 0.02);
+    spot.intensity = spot.userData.base * (0.96 + Math.sin(t * 9.7) * 0.02 + Math.sin(t * 4.1) * 0.02);
     if (lights.tableCandle) lights.tableCandle.intensity = 70 * (0.85 + Math.sin(t * 12) * 0.1);
   });
 
-  // ---------- 骰盘和钱币 ----------
+  // ---------- 骰盘和钱币（格罗申；掷币定先手后那枚币落到先手一方最高的那摞上） ----------
   buildTray(scene);
-  scene.add(place(coinStack(7, 'gold', 11), -8.4, TABLE_Y, 9.4));
-  scene.add(place(coinStack(5, 'silver', 12), -6.8, TABLE_Y, 10.4));
-  scene.add(place(coinPurse(13), -12.4, TABLE_Y, 13.2, 0.5));
-  scene.add(place(coinStack(6, 'gold', 14), 8.4, TABLE_Y, -9.4));
-  scene.add(place(coinStack(5, 'silver', 15), 6.8, TABLE_Y, -10.4));
-  scene.add(place(coinPurse(16), 12.4, TABLE_Y, -13.4, 3.4));
-  const loose = makeCoin('silver', 1);
-  loose.position.set(-4.6, TABLE_Y + 0.05, 11.6);
+  await loadGroschen(renderer);
+  const stacks = [place(groschenStack(7, 11), -8.4, TABLE_Y, 9.4), place(groschenStack(6, 14), 8.4, TABLE_Y, -9.4)];
+  scene.add(...stacks);
+  scene.add(place(groschenStack(5, 12), -6.8, TABLE_Y, 10.4));
+  scene.add(place(groschenPurse(13), -12.4, TABLE_Y, 13.2, 0.5));
+  scene.add(place(groschenStack(5, 15), 6.8, TABLE_Y, -10.4));
+  scene.add(place(groschenPurse(16), 12.4, TABLE_Y, -13.4, 3.4));
+  const loose = makeGroschen({ seg: 48, variant: 1 });
+  loose.position.set(-4.6, TABLE_Y + G_H * 0.6, 11.6);
+  loose.rotation.y = 0.7;
   scene.add(loose);
 
   const dust = createDust({ minX: -150, maxX: 150, minY: -34, maxY: 100, minZ: -180, maxZ: 110 }, 1100);
   scene.add(dust);
   updaters.push((dt, t, cam) => dust.userData.update(dt, t, cam));
 
-  return { updaters, lights, door, markers, root, lightmap: lm };
+  // 桌角的锡酒杯：过场动画里“低头看向牌桌”的最后一帧（tools/anim 的 table 关键帧）有它，实时画面也摆在同一个地方
+  const props = await loadGLB('props');
+  const mug = props.scene.getObjectByName('mug_pewter').clone();
+  mug.scale.setScalar(UNIT);
+  mug.position.set(17.6, TABLE_Y, -3.9);
+  mug.traverse((o) => o.isMesh && (o.castShadow = true));
+  scene.add(mug);
+
+  return { updaters, lights, door, markers, root, lightmap: lm, stacks };
 }

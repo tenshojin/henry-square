@@ -335,6 +335,47 @@ export class AudioEngine {
       this.burst({ t, freq: 5000, q: 2, gain: 0.05, dur: 0.02 });
     }
   }
+  // ---------- 格罗申（掷币、胜利撒钱） ----------
+  // 银币的声音：几个不成谐波的高频分音（薄金属片的特征）叠一点点噪声
+  coinRing({ t = 0, gain = 0.06, base = 3200, dur = 0.5, pan = 0 } = {}) {
+    for (const [k, g, d] of [[1, 1, 1], [1.53, 0.6, 0.7], [2.41, 0.42, 0.5], [3.37, 0.22, 0.35]]) {
+      this.ping({ t, freq: base * k * rand(0.99, 1.01), dur: dur * d, gain: gain * g, pan });
+    }
+    this.burst({ t, freq: base * 2, q: 3, gain: gain * 0.6, dur: 0.012, pan });
+  }
+  // 拇指弹起：短促的一下，接着长长的“叮——”
+  coinFlick() {
+    this.burst({ freq: 1800, q: 1.5, gain: 0.08, dur: 0.02 });
+    this.coinRing({ t: 0.005, gain: 0.07, base: 3400, dur: 1.1 });
+  }
+  // 翻到正对灯光、闪一下的时候：很轻的高音
+  coinGlint(pan = 0) {
+    this.ping({ freq: rand(6200, 7400), dur: 0.35, gain: 0.018, pan });
+    this.ping({ t: 0.06, freq: rand(8200, 9200), dur: 0.25, gain: 0.01, pan });
+  }
+  // 落在皮面骰盘上：闷的一下 + 短的金属声
+  coinLand(strength = 1, pan = 0) {
+    this.burst({ freq: 420, q: 0.8, gain: 0.16 * strength, dur: 0.06, type: 'lowpass', pan });
+    this.coinRing({ gain: 0.045 * strength, base: 2900, dur: 0.28, pan });
+  }
+  // 立着打转：每半圈边沿磕一下桌面（越转越快、越来越轻），rate 0–1 表示转得多快
+  coinRattle(rate = 0, pan = 0) {
+    this.burst({ freq: 2400 + rate * 2600, q: 2.2, gain: 0.035 + 0.03 * (1 - rate), dur: 0.018, pan });
+    if (Math.random() < 0.5) this.ping({ freq: 3000 + rate * 1800, dur: 0.06, gain: 0.012, pan });
+  }
+  // 最后啪地躺平
+  coinSettle(pan = 0) {
+    this.burst({ freq: 1500, q: 1.4, gain: 0.12, dur: 0.03, pan });
+    this.burst({ freq: 300, q: 0.8, gain: 0.08, dur: 0.05, type: 'lowpass', pan });
+    this.coinRing({ t: 0.004, gain: 0.03, base: 3100, dur: 0.4, pan });
+  }
+  // 撒下来的币落桌：一枚一声（调用方限制频率），落在别的币上更清脆
+  coinClink(onCoin = false, pan = 0, gain = 1) {
+    if (!this.ctx) return;
+    const base = onCoin ? rand(3600, 4800) : rand(2400, 3400);
+    this.coinRing({ gain: (onCoin ? 0.028 : 0.022) * gain, base, dur: onCoin ? 0.3 : 0.18, pan });
+    if (!onCoin) this.burst({ freq: rand(380, 520), q: 0.9, gain: 0.05 * gain, dur: 0.04, type: 'lowpass', pan });
+  }
   sting(good = true) {
     // 鲁特琴短乐句
     if (!this.ctx) return;

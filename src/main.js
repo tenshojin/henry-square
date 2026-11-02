@@ -1,7 +1,7 @@
 // 入口：加载场景 → 开场页 → 开场动画 → 菜单
 import { Stage } from './render/stage.js';
 import { buildWorld } from './render/world.js';
-import { buildPeople } from './render/people.js';
+import { Cutscenes } from './render/cutscenes.js';
 import { createThumbnailer, Die3D } from './render/diceModel.js';
 import { AudioEngine } from './audio/audio.js';
 import { UI } from './ui/ui.js';
@@ -36,25 +36,20 @@ async function main() {
 
   const stage = new Stage(document.getElementById('app'));
   stage.paused = true; // 着色器编译完之前先不渲染，避免主线程卡住
-  stage.camera.position.set(0, 46, 380);
-  stage.camera.lookAt(0, 52, 147);
+  // 过场动画（v3.4 起人物只出现在视频里）：开场页后面先显示门关着的那一帧
+  const csMeta = Cutscenes.available();
+  const cs = csMeta ? new Cutscenes(stage, audio, csMeta) : null;
+  const still = cs ? cs.showIntroStill() : null;
   mark('stage');
   ui.setLoading(0.1);
   await nextFrame();
-  // 酒馆（Blender 建模 + 烘焙光照）和四个人物都是内嵌的模型文件，异步解码
+  // 酒馆（Blender 建模 + 烘焙光照）是内嵌的模型文件，异步解码；实时画面只用到牌桌这一块
   const tav = await buildWorld(stage.scene, stage.renderer, { camera: stage.camera });
   tav.updaters.forEach((fn) => stage.add(fn));
   ui.setLoading(0.2);
-  const people = await buildPeople(stage.scene, tav, { audio });
-  people.updaters.forEach((fn) => stage.add(fn));
-  tav.crowd = people;
   const game = new Game(stage, ui, audio);
   game.tavern = tav;
-  // 默认难度对应的对手直接坐在对面
-  game.setOpponent(game.difficulty, true);
-  // 对手的骰盅在动时，坐在对面的人眼睛跟着它；任何一个盅在动时，桌边的人不去拿酒杯
-  people.setOpponentCup(game.cups[1], game.cupRest[1]);
-  people.setCups(game.cups, game.cupRest);
+  game.cutscenes = cs;
   mark('tavern');
   ui.setLoading(0.3);
   await nextFrame();
@@ -92,8 +87,27 @@ async function main() {
   mark('thumbs');
   ui.setLoading(0.9);
   await compiling;
+  // 先在视频下面实时渲染几帧（贴图上传到显卡），第一次切到牌桌时不会卡一下；有视频盖着时再停下
   stage.paused = false;
+  await nextFrame();
+  await nextFrame();
   mark('compile');
+  if (cs) {
+    try {
+      await still;
+    } catch (e) {
+      // 视频解不出来（浏览器说支持 AV1 但实际不行）：不放过场动画，整局在实时的牌桌画面上进行
+      console.warn(e);
+      cs.box.remove();
+      game.cutscenes = null;
+    }
+  }
+  if (game.cutscenes) {
+    stage.paused = true;
+    // 开场要用的几段先解出来，其余的在后台慢慢解
+    await cs.prepare(['intro_b', 'idle_elder']);
+    cs.prepare(Object.keys(csMeta.clips));
+  }
   ui.setLoading(1);
   ui.setLoaded();
   window.__game = game;
@@ -107,7 +121,7 @@ async function main() {
       audio.startAmbience();
     });
     ui.hideSplash();
-    if (location.search.includes('nointro')) game.skipIntro();
+    if (location.search.includes('nointro')) await game.skipIntro();
     else await game.playIntro();
     game.showMenu();
   };

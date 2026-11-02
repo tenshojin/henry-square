@@ -2,6 +2,7 @@
 import { i18n, VERSION } from '../i18n.js';
 import { DICE_BY_ID, SPECIAL_DICE, NORMAL_ID, dieName, dieHint } from '../data/dice.js';
 import { iconSVG } from './icon.js';
+import { groschenIcons } from '../render/groschen.js';
 
 const ICONS = {
   music: '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>',
@@ -79,20 +80,19 @@ function flourishSVG() {
     <circle cx="145" cy="13" r="1.8" fill="currentColor"/><circle cx="175" cy="13" r="1.8" fill="currentColor"/>
   </svg>`;
 }
-// 哥特花饰角：金色细线勾的卷草 + 小三叶
-const CORNER = `<svg viewBox="0 0 46 46" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round">
-  <path d="M3 30 V9 Q3 3 9 3 H30" stroke-width="1.3"/>
-  <path d="M7 34 V12 Q7 7 12 7 H34" stroke-width="0.6" opacity=".7"/>
-  <path d="M12 12 C 18 12, 22 16, 20 21 C 18 25, 13 23, 14 19 C 15 16, 19 17, 18.5 19.5" stroke-width="1"/>
-  <path d="M3 30 C 3 36, 6 40, 10 42" stroke-width="0.8" opacity=".8"/>
-  <path d="M30 3 C 36 3, 40 6, 42 10" stroke-width="0.8" opacity=".8"/>
-</g><path d="M3 3 m-2.6 0 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0" fill="currentColor"/>
-<path d="M24 3 l2.2 -2.2 2.2 2.2 -2.2 2.2z M3 24 l2.2 -2.2 2.2 2.2 -2.2 2.2z" fill="currentColor"/></svg>`;
+// 金箔角花：转角一颗菱形，两条渐细的烫金线沿边伸出去，往里卷出两片叶子
+const CORNER = `<svg viewBox="0 0 46 46" aria-hidden="true"><g fill="currentColor">
+  <path d="M9 3.2 L14.8 9 L9 14.8 L3.2 9 Z"/>
+  <path d="M15.5 8.1 H38 Q42.5 9 38 9.9 H15.5 Z"/><circle cx="42.6" cy="9" r="1.5"/>
+  <path d="M8.1 15.5 V38 Q9 42.5 9.9 38 V15.5 Z"/><circle cx="9" cy="42.6" r="1.5"/>
+  <path d="M13.2 13.2 C 18.6 12.4 23.4 15.2 24.6 20.6 C 21.4 18.6 17.6 17.9 14.6 19.1 C 15.9 16.8 15.3 14.9 13.2 13.2 Z"/>
+  <path d="M13.2 13.2 C 12.4 18.6 15.2 23.4 20.6 24.6 C 18.6 21.4 17.9 17.6 19.1 14.6 C 16.8 15.9 14.9 15.3 13.2 13.2 Z"/>
+  <circle cx="22.6" cy="22.6" r="1.7"/>
+</g></svg>`;
 
-// 横幅：一条半透明暗带，上下两道金线从中间向两边展开，中间各一颗小菱形
-const RIBBON = {};
+// 横幅：一条羊皮纸飘带（中间一段 + 两端折到后面的燕尾）
 function ribbonSVG() {
-  return '<div class="ribbon" aria-hidden="true"><i class="band"></i><i class="line t"></i><i class="line b"></i><i class="gem t"></i><i class="gem b"></i></div>';
+  return '<div class="ribbon" aria-hidden="true"><i class="tail l"></i><i class="tail r"></i><i class="band"></i></div>';
 }
 
 export class UI {
@@ -224,6 +224,9 @@ export class UI {
       this.audio.click();
       onSkip();
     };
+  }
+  hideSkip() {
+    this.skipBtn.classList.add('hidden');
   }
   hideIntro() {
     this.skipBtn.classList.add('hidden');
@@ -445,8 +448,11 @@ export class UI {
     h.innerHTML = '';
     const panel = (p, idx) => {
       const isAI = idx === 1;
-      const pe = el('div', `panel paper small ${isAI ? 'right' : 'left'}${s.current === idx ? ' active' : ''}`);
+      const pe = el('div', `panel vellum ${isAI ? 'right' : 'left'}${s.current === idx ? ' active' : ''}`);
       pe.insertAdjacentHTML('beforeend', isAI ? sealSVG('green', DIFF_EMBLEM[s.difficulty], 41) : sealSVG('red', 'H', 40));
+      if (s.current === idx) pe.insertAdjacentHTML('beforeend', '<i class="p-mark"></i>');
+      // 掷币定先手的提醒：先手一方的牌子上一枚小格罗申（玩家先手是头像那面，对手先手是十字那面）
+      if (s.first === idx) pe.insertAdjacentHTML('beforeend', `<div class="p-first" title="${t.tossLog(idx === 0)}"><img src="${groschenIcons()[idx === 0 ? 'heads' : 'cross']}" alt=""><span>${t.firstBadge}</span></div>`);
       const name = isAI ? `${t.opponent} · ${t.diff[s.difficulty].name}` : t.you;
       const sub = isAI ? t.diff[s.difficulty].who : t.targetN(s.target);
       pe.insertAdjacentHTML('beforeend', `<div class="p-head"><span class="p-name">${name}</span><span class="p-sub">${sub}</span></div>
@@ -467,7 +473,7 @@ export class UI {
     h.appendChild(panel(s.players[1], 1));
     // 回合信息与按钮
     const bottom = el('div', 'bottom');
-    const info = el('div', 'turn-info paper small');
+    const info = el('div', 'turn-info vellum');
     const curName = s.current === 0 ? t.you : s.current === 1 ? t.opponent : '';
     let selLine = '';
     if (s.selection) {
@@ -505,9 +511,11 @@ export class UI {
     this.renderHud();
   }
 
-  banner(text, sub = '', kind = '', dur = 1800) {
-    const b = el('div', 'banner-inner ' + kind, `${ribbonSVG(kind)}<div class="b-text">${text}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}`);
+  // icon：飘带上方显示的小图（掷币结果那一面）
+  banner(text, sub = '', kind = '', dur = 1800, icon = '') {
+    const b = el('div', 'banner-inner ' + kind, `${ribbonSVG()}${icon ? `<img class="b-coin" src="${icon}" alt="">` : ''}<div class="b-text">${text}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}`);
     this.bannerEl.innerHTML = '';
+    this.bannerEl.classList.toggle('low', /\btoss/.test(kind));
     this.bannerEl.appendChild(b);
     requestAnimationFrame(() => b.classList.add('show'));
     clearTimeout(this.bannerTimer);
@@ -573,9 +581,12 @@ export class UI {
       card.appendChild(close);
       this.modal.appendChild(card);
     };
+    if (this.modalRender) this.rerender.delete(this.modalRender);
     this.modalRender = render;
     this.rerender.add(render);
     render();
+    // 刚关掉一个、马上又打开另一个：取消上一个的“稍后隐藏”
+    clearTimeout(this.modalHideTimer);
     this.modal.classList.remove('hidden');
     requestAnimationFrame(() => this.modal.classList.add('show'));
     this.modal.onclick = (e) => {
@@ -585,7 +596,8 @@ export class UI {
   closeModal() {
     this.rerender.delete(this.modalRender);
     this.modal.classList.remove('show');
-    setTimeout(() => this.modal.classList.add('hidden'), 300);
+    clearTimeout(this.modalHideTimer);
+    this.modalHideTimer = setTimeout(() => this.modal.classList.add('hidden'), 300);
     this.hideTip();
   }
   showRules() {

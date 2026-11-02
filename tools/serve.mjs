@@ -10,7 +10,7 @@ const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 http
   .createServer((req, res) => {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (p === '/') p = '/亨利广场.html';
+    if (p === '/') p = '/亨利酒馆.html';
     const f = path.join(root, p);
     if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
       res.writeHead(404);

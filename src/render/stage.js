@@ -14,9 +14,9 @@ const GradeShader = {
     uTime: { value: 0 },
     uAmount: { value: 1.0 },
     uContrast: { value: 0.22 },
-    uSat: { value: 0.92 },
-    uLift: { value: new THREE.Vector3(0.035, 0.018, 0.006) },
-    uGain: { value: new THREE.Vector3(1.03, 0.99, 0.93) },
+    uSat: { value: 0.76 },
+    uLift: { value: new THREE.Vector3(0.022, 0.015, 0.009) },
+    uGain: { value: new THREE.Vector3(0.99, 0.985, 0.96) },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
@@ -30,16 +30,16 @@ const GradeShader = {
       c = mix(vec3(l), c, uSat);
       c = c * uGain + uLift * (1.0 - c);
       vec2 d = vUv - 0.5;
-      float v = smoothstep(0.92, 0.28, length(d * vec2(1.12, 1.0)));
-      c *= mix(1.0, v * 0.78 + 0.22, uAmount);
+      float v = smoothstep(0.9, 0.22, length(d * vec2(1.12, 1.0)));
+      c *= mix(1.0, v * 0.82 + 0.18, uAmount);
       c += (rand(vUv * 731.0 + uTime) - 0.5) * 0.022;
       gl_FragColor = vec4(c, 1.0);
     }`,
 };
 
+// 牌桌机位（v3.4 起实时画面只有这一个机位；开场、选对手、换人都是过场动画）。
+// 改了机位要重新截 tools/anim 的 table 关键帧、重做低头 / 抬头的片段（它们的最后 / 第一帧就是这个机位看到的牌桌）
 export const GAME_CAM = { pos: new THREE.Vector3(0, 21.5, 15.8), look: new THREE.Vector3(0, -1.6, 1.0), fov: 42 };
-// 选对手时的机位：坐在桌前、平视对面的座位（下面一截被菜单挡住）
-export const MENU_CAM = { pos: new THREE.Vector3(0, 29, 76), look: new THREE.Vector3(0, 13, -42), fov: 34 };
 
 export class Stage {
   constructor(container) {
@@ -49,7 +49,7 @@ export class Stage {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 0.84; // v3.4 调暗、降饱和：原来牌桌比过场动画里的酒馆红亮得多，低头切到牌桌那一下刺眼（第二轮再调暗）
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
@@ -58,11 +58,11 @@ export class Stage {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(GAME_CAM.fov, window.innerWidth / window.innerHeight, 0.3, 1500);
     this.camera.position.copy(GAME_CAM.pos);
-    this.camLook = GAME_CAM.look.clone();
-    this.camera.lookAt(this.camLook);
-    this.camMode = 'free'; // 'game' / 'menu' 时停在对应机位，有轻微呼吸感
-    this.curLook = GAME_CAM.look.clone();
-    this.baseFov = GAME_CAM.fov;
+    this.camera.lookAt(GAME_CAM.look);
+    this.camMode = 'game'; // 'game'：停在牌桌机位，有轻微呼吸感；'free'：由别处控制
+    this.wobble = 1; // 镜头呼吸的幅度（从视频切回实时画面时先是 0，和视频最后一帧的机位完全一样，再慢慢加上）
+    this.fovFixK = 1; // 窄屏加大视角的程度（和视频衔接时先按视频的视角，再慢慢放开）
+    this.videoAspect = 0; // 过场动画的宽高比（视频按高度铺满屏幕；比它还宽的屏幕上下会裁掉一点）
 
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
@@ -158,18 +158,22 @@ export class Stage {
       }
     }
     for (const fn of this.updaters) fn(dt, t, this.camera);
-    if (this.camMode === 'game' || this.camMode === 'menu') {
-      const c = this.camMode === 'game' ? GAME_CAM : MENU_CAM;
-      const p = c.pos;
-      this.camera.position.set(p.x + Math.sin(t * 0.21) * 0.25, p.y + Math.sin(t * 0.33) * 0.15, p.z + Math.sin(t * 0.17) * 0.2);
-      this.camera.fov = c.fov + this.fovFix;
+    if (this.camMode === 'game') {
+      this.gamePos(t, this.camera.position);
+      this.camera.fov = this.fovFor(GAME_CAM.fov);
       this.camera.updateProjectionMatrix();
-      this.curLook.copy(c.look);
-      this.camera.lookAt(c.look);
+      this.camera.lookAt(GAME_CAM.look);
     }
     this.grade.uniforms.uTime.value = t;
     this.composer.render();
     this.watchQuality(dt);
+  }
+
+  // 牌桌机位此刻的位置（带呼吸）；别处临时接管镜头（掷币时推近）时从这里出发、回到这里
+  gamePos(t = this.time, v = new THREE.Vector3()) {
+    const p = GAME_CAM.pos;
+    const wb = this.wobble;
+    return v.set(p.x + Math.sin(t * 0.21) * 0.25 * wb, p.y + Math.sin(t * 0.33) * 0.15 * wb, p.z + Math.sin(t * 0.17) * 0.2 * wb);
   }
 
   // 开局后统计几秒帧时间：太慢就先关环境光遮蔽，再降分辨率
@@ -194,27 +198,17 @@ export class Stage {
     }
   }
 
-  // 镜头平滑移到菜单机位 / 牌桌机位
-  moveCam(mode, dur = 1.6) {
-    const to = mode === 'game' ? GAME_CAM : MENU_CAM;
-    const p0 = this.camera.position.clone();
-    const l0 = this.curLook.clone();
-    const f0 = this.camera.fov;
-    const look = new THREE.Vector3();
-    this.camMode = 'free';
-    const id = (this.camMoveId = (this.camMoveId || 0) + 1);
-    return this.tween(dur, (k) => {
-      if (id !== this.camMoveId) return;
-      this.camera.position.lerpVectors(p0, to.pos, k);
-      // 视线先走得慢一点，镜头像是抬头 / 低头而不是平移
-      look.lerpVectors(l0, to.look, easeInOut(Math.min(1, k * 1.08)));
-      this.curLook.copy(look);
-      this.camera.fov = f0 + (to.fov + this.fovFix - f0) * k;
-      this.camera.updateProjectionMatrix();
-      this.camera.lookAt(look);
-    }, easeInOut).then(() => {
-      if (id === this.camMoveId) this.camMode = mode;
-    });
+  // 视频铺满屏幕后看到的竖直视角：屏幕比视频宽时视频按宽度铺满、上下裁掉，看到的范围比原来窄
+  videoFov(f) {
+    const aspect = window.innerWidth / window.innerHeight;
+    if (!this.videoAspect || aspect <= this.videoAspect) return f;
+    return (2 * Math.atan(Math.tan((f * Math.PI) / 360) * (this.videoAspect / aspect)) * 180) / Math.PI;
+  }
+
+  // 实时画面的视角：fovFixK = 0 时和视频一样（衔接用），1 时窄屏加大视角（保证整张桌子可见）
+  fovFor(f) {
+    const vf = this.videoFov(f);
+    return vf + (f + this.fovFix - vf) * this.fovFixK;
   }
 
   tween(duration, fn, ease = easeInOut) {

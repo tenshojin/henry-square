@@ -1,8 +1,8 @@
 // 中英双语文本
 const STR = {
   zh: {
-    title: '亨利广场',
-    titleSub: 'HENRY SQUARE',
+    title: '亨利酒馆',
+    titleSub: "HENRY'S TAVERN",
     tagline: '所有，或者一无所有',
     enter: '推门而入',
     loading: '正在摆桌……',
@@ -47,6 +47,14 @@ const STR = {
     oppTurn: '对手的回合',
     firstYou: '掷币定先手：你先来',
     firstOpp: '掷币定先手：对手先来',
+    tossTitle: '掷币定先手',
+    tossRule: '亚历山大头像朝上，你先手　·　十字朝上，对手先手',
+    tossHeads: '头像朝上',
+    tossCross: '十字朝上',
+    firstYouShort: '你先手',
+    firstOppShort: '对手先手',
+    firstBadge: '先手',
+    tossLog: (you) => (you ? '掷币：头像朝上，你先手' : '掷币：十字朝上，对手先手'),
     bust: '一无所获！',
     bustSub: '本回合分数全部作废',
     hot: '全骰得分！',
@@ -112,7 +120,7 @@ const STR = {
     faceNow: (v) => `当前点数：${v}`,
   },
   en: {
-    title: 'Henry Square',
+    title: "Henry's Tavern",
     titleSub: 'A TAVERN GAME OF DICE',
     tagline: 'All, or nothing.',
     enter: 'Step Inside',
@@ -158,6 +166,14 @@ const STR = {
     oppTurn: "Opponent's Turn",
     firstYou: 'Coin toss: you go first',
     firstOpp: 'Coin toss: opponent goes first',
+    tossTitle: 'The Coin Toss',
+    tossRule: "Alexander's head — you go first  ·  the cross — your opponent does",
+    tossHeads: 'Heads!',
+    tossCross: 'The Cross!',
+    firstYouShort: 'You go first',
+    firstOppShort: 'Your opponent goes first',
+    firstBadge: 'First',
+    tossLog: (you) => (you ? 'Coin toss: heads — you go first' : 'Coin toss: the cross — opponent goes first'),
     bust: 'Bust!',
     bustSub: 'All points this turn are lost',
     hot: 'Hot Dice!',
@@ -233,7 +249,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v3.3';
+export const VERSION = 'v3.4';
 
 export const i18n = {
   get lang() {

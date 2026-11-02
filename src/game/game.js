@@ -1,17 +1,21 @@
-// 游戏流程：开场动画、对局、回合、骰盅动画、玩家选择与 AI
+// 游戏流程：开场动画、选对手、对局、回合、骰盅动画、玩家选择与 AI
 import * as THREE from 'three';
 import { DICE_BY_ID, NORMAL_ID, rollFace, randomSpecial, pickBestWeighted } from '../data/dice.js';
 import { evaluateSelection, bestOfRoll } from './scoring.js';
 import { decide } from './ai.js';
 import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
+import { CoinToss } from '../render/coinToss.js';
+import { coinShower } from '../render/coinShower.js';
+import { groschenIcons, G_REST, G_STEP } from '../render/groschen.js';
 import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
 import { TABLE_Y } from '../render/world.js';
-import { MENU_CAM, easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
-import { OPPONENT_OF } from '../render/people.js';
+import { easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
 import { i18n } from '../i18n.js';
 
-const DOOR_AXIS = new THREE.Vector3(0, 1, 0);
+// 难度对应的对手（过场动画里坐在对面的人）
+export const OPPONENT_OF = { casual: 'barmaid', novice: 'drinker', regular: 'elder', king: 'dicer' };
+const DOOR_CREAK = 0.4; // 开场推门那段视频里门开始动的时间（秒）
 
 export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 8000 };
 const ROW_Y = TABLE_Y + 0.5;
@@ -107,133 +111,62 @@ export class Game {
   }
 
   // ---------- 开场动画 ----------
-  skipIntro() {
-    this.openDoor(1);
-    this.audio.setInside(1);
-    this.stage.camMode = 'menu';
-  }
-
-  // 门绕竖直的门轴往里转 f × 86°。门从 Blender 导出时自带一个朝向（合并木板时带进来的旋转），
-  // 要在它上面再转；原来直接改 rotation.y，把自带的朝向覆盖了，门从一开始就横着卡在墙里，门洞是空的
-  openDoor(f) {
-    const d = this.tavern?.door;
-    if (!d) return;
-    if (!d.userData.closedQ) d.userData.closedQ = d.quaternion.clone();
-    d.quaternion.setFromAxisAngle(DOOR_AXIS, -1.5 * f).multiply(d.userData.closedQ);
-  }
-
-  // 开场：站在正门外 → 推开门 → 先看左边吧台、再看正面拱窗、右边壁炉 → 走到游戏桌前坐下，看着对面的对手
-  // 先按时间把镜头轨迹采样成每秒 60 帧，再做两遍平滑（位置和朝向都平滑），保证不会突然急转
-  buildIntroPath() {
-    const g = MENU_CAM;
-    const keys = [
-      // 街上看招牌 → 门开了往里走 → 左看柜台、正看窗和旗、右看壁炉 → 落到桌前
-      [0, [0, 46, 380], [0, 52, 147]],
-      [1.4, [0, 46, 366], [0, 50, 147]],
-      [3.8, [0, 44, 250], [0, 40, 100]],
-      [5.8, [0, 42, 160], [-6, 36, 40]],
-      [8.8, [-8, 46, 105], [-112, 34, -100]],
-      [11.9, [2, 47, 86], [0, 46, -190]],
-      [15.0, [16, 45, 70], [160, 36, -70]],
-      [17.8, [8, 36, 68], [30, 18, -40]],
-      [20.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
-      [21.4, [g.pos.x, g.pos.y, g.pos.z], [g.look.x, g.look.y, g.look.z]],
-    ];
-    const n = keys.length;
-    const posCurve = new THREE.CatmullRomCurve3(keys.map((k) => new V3(...k[1])), false, 'centripetal');
-    const lookCurve = new THREE.CatmullRomCurve3(keys.map((k) => new V3(...k[2])), false, 'centripetal');
-    const T = keys[n - 1][0];
-    const sampleAt = (curve, time) => {
-      let i = 0;
-      while (i < n - 2 && time >= keys[i + 1][0]) i++;
-      const local = THREE.MathUtils.clamp((time - keys[i][0]) / (keys[i + 1][0] - keys[i][0]), 0, 1);
-      return curve.getPoint((i + local) / (n - 1));
-    };
-    const count = Math.ceil(T * 60) + 1;
-    const pos = [];
-    const dir = [];
-    for (let k = 0; k < count; k++) {
-      const time = Math.min(T, k / 60);
-      const p = sampleAt(posCurve, time);
-      pos.push(p);
-      dir.push(sampleAt(lookCurve, time).sub(p).normalize());
-    }
-    const smooth = (arr, R) =>
-      arr.map((_, k) => {
-        const acc = new V3();
-        for (let j = -R; j <= R; j++) acc.add(arr[THREE.MathUtils.clamp(k + j, 0, arr.length - 1)]);
-        return acc.multiplyScalar(1 / (2 * R + 1));
-      });
-    const sp = smooth(smooth(pos, 28), 28);
-    const sd = smooth(smooth(dir, 40), 40).map((v) => v.normalize());
-    // 最后一帧精确落在游戏机位
-    sp[count - 1].copy(g.pos);
-    sd[count - 1].copy(g.look).sub(g.pos).normalize();
-    return { pos: sp, dir: sd, T };
-  }
-
+  // 推门 → 走进酒馆、停在老人对面（视频），标题字幕在走进门之后浮现；右下角可跳过。浏览器放不了视频时直接到牌桌
   async playIntro() {
-    const st = this.stage;
-    st.camMode = 'free';
-    const path = this.buildIntroPath();
-    const target = new V3();
-    let t = 0;
-    let skipped = false;
+    const cs = this.cutscenes;
+    const a = this.audio;
+    if (!cs) {
+      a.setInside(1);
+      return;
+    }
     let creaked = false;
-    let capShown = false;
-    let capHidden = false;
-    const apply = (time) => {
-      const f = Math.min(path.pos.length - 1, time * 60);
-      const k0 = Math.floor(f);
-      const k1 = Math.min(path.pos.length - 1, k0 + 1);
-      const a = f - k0;
-      st.camera.position.lerpVectors(path.pos[k0], path.pos[k1], a);
-      target.lerpVectors(path.dir[k0], path.dir[k1], a).normalize().add(st.camera.position);
-      st.camera.fov = THREE.MathUtils.lerp(56, MENU_CAM.fov + st.fovFix, easeInOut(THREE.MathUtils.clamp((time - (path.T - 4.5)) / 3.5, 0, 1)));
-      st.camera.updateProjectionMatrix();
-      st.camera.lookAt(target);
-      // 推门
-      const door = easeInOut(THREE.MathUtils.clamp((time - 0.9) / 2.2, 0, 1));
-      this.openDoor(door);
-      this.audio.setInside(door);
-    };
-    this.audio.setInside(0);
-    apply(0);
-    await new Promise((resolve) => {
-      const off = st.add((dt) => {
-        if (skipped) return;
-        t += dt;
-        apply(Math.min(t, path.T));
-        if (!creaked && t > 0.85) {
+    let cap = false;
+    a.setInside(0);
+    const done = cs.intro((clip, t) => {
+      if (clip === 'intro_a') {
+        if (!creaked && t > DOOR_CREAK) {
           creaked = true;
-          this.audio.doorCreak();
+          a.doorCreak();
         }
-        if (!capShown && t > 4.2) {
-          capShown = true;
+        a.setInside(THREE.MathUtils.clamp((t - DOOR_CREAK) / 2.4, 0, 1));
+      } else {
+        a.setInside(1);
+        if (!cap && t > 1.2) {
+          cap = true;
           this.ui.showIntroCaption(true);
         }
-        if (!capHidden && t > 12.6) {
-          capHidden = true;
-          this.ui.showIntroCaption(false);
-        }
-        if (t >= path.T) {
-          off();
-          resolve();
-        }
-      });
+      }
+    });
+    const skipped = new Promise((resolve) =>
       this.ui.showSkip(async () => {
-        if (skipped) return;
-        skipped = true;
-        off();
         await this.ui.fade(true, 350);
-        apply(path.T);
+        await cs.jumpTo(OPPONENT_OF[this.difficulty]);
+        a.setInside(1);
         this.ui.showIntroCaption(false);
         await this.ui.fade(false, 600);
-        resolve();
-      });
-    });
-    this.ui.hideIntro();
-    st.camMode = 'menu';
+        resolve(false);
+      })
+    );
+    // 视频盖着时实时画面暂停，stage.wait 不走，用定时器
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (await Promise.race([done, skipped])) {
+      // 落到老人对面之后字幕再停一会儿，先淡出，菜单再从下面升起来
+      this.ui.hideSkip();
+      if (!cap) this.ui.showIntroCaption(true);
+      await sleep(1600);
+      this.ui.hideIntro();
+      await sleep(1100);
+    } else {
+      await skipped;
+      this.ui.hideIntro();
+    }
+    a.setInside(1);
+  }
+
+  // ?nointro：直接到选对手（自测用）
+  async skipIntro() {
+    this.audio.setInside(1);
+    if (this.cutscenes) await this.cutscenes.jumpTo(OPPONENT_OF[this.difficulty]);
   }
 
   // ---------- 菜单与开局 ----------
@@ -242,16 +175,59 @@ export class Game {
     this.openMenu();
   }
 
-  // 选对手的菜单：镜头看向对面；点难度卡片时对面就换人（原来的人起身离开，新的人走过来坐下）
+  // 选对手的菜单是贴在画面下方的一条，上面露出对面坐着的人；点难度卡片，原来的人起身离开、新的人走过来坐下（过场动画）。
+  // 从牌桌回来时先抬头看向对面
   openMenu() {
-    this.tavern?.crowd?.setMatch(false);
-    if (this.stage.camMode !== 'menu') this.stage.moveCam('menu', 1.8);
     this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS, (diff) => this.setOpponent(diff));
+    return this.leaveTable();
   }
 
-  setOpponent(diff, instant = false) {
+  setOpponent(diff) {
     this.difficulty = diff;
-    this.tavern?.crowd?.setOpponent(OPPONENT_OF[diff], instant);
+    if (this.cutscenes) this.cutscenes.swapTo(OPPONENT_OF[diff]);
+  }
+
+  // 实时画面镜头的呼吸和窄屏视角：k = 0 时和视频的机位、视角完全一样（切换的那一下用），1 时恢复正常
+  easeLiveCam(to, dur) {
+    const st = this.stage;
+    const id = (this.camEaseId = (this.camEaseId || 0) + 1);
+    const w0 = st.wobble;
+    const f0 = st.fovFixK;
+    return st.tween(dur, (k) => {
+      if (id !== this.camEaseId) return;
+      st.wobble = w0 + (to - w0) * k;
+      st.fovFixK = f0 + (to - f0) * k;
+    });
+  }
+
+  // 开局：低头看向牌桌（视频），它的最后一帧就是实时的牌桌画面；换回实时渲染后镜头再慢慢开始呼吸
+  async enterTable() {
+    const cs = this.cutscenes;
+    if (!cs || this.atTable) return;
+    this.atTable = true;
+    const st = this.stage;
+    await cs.toTable(() => {
+      this.camEaseId = (this.camEaseId || 0) + 1;
+      st.wobble = 0;
+      st.fovFixK = 0;
+      st.camMode = 'game';
+    });
+    this.easeLiveCam(1, 1.6);
+  }
+
+  // 回菜单：实时画面的镜头先停到和视频第一帧一样，再淡入“从牌桌抬头看向对面”的视频
+  async leaveTable() {
+    const cs = this.cutscenes;
+    if (!cs) {
+      this.stopCoins?.(true);
+      return;
+    }
+    if (!this.atTable) return;
+    this.atTable = false;
+    await this.easeLiveCam(0, 0.3);
+    await cs.fromTable();
+    // 胜利撒下的钱等抬头的视频盖住画面后再收走（视频淡入时它们跟着淡掉，视频第一帧的桌上没有它们）
+    this.stopCoins?.();
   }
 
   backToMenu() {
@@ -270,6 +246,7 @@ export class Game {
     if (this.cancelWait) this.cancelWait(new Cancelled());
     this.cancelWait = null;
     this.selectable = null;
+    this.toss?.stop();
     this.cups.forEach((c, i) => {
       c.position.copy(this.cupRest[i]);
       c.rotation.set(0, i === 0 ? -0.4 : 0.4, 0);
@@ -284,6 +261,7 @@ export class Game {
       d.ring.material.dispose();
     }
     this.dice = [];
+    this.toss?.clear(); // 掷币后留在先手那摞钱上的那枚
   }
 
   makeAiDice(diff) {
@@ -311,13 +289,16 @@ export class Game {
     this.cancelMatch();
     const id = this.matchId;
     this.clearDice();
+    // 上一局胜利撒下的钱：桌面还看得见就缩小消失，被视频盖着就直接收走
+    this.stopCoins?.(this.atTable);
     this.setOpponent(diff);
     this.target = TARGETS[diff];
-    this.tavern?.crowd?.setMatch(true);
-    if (this.stage.camMode !== 'game') this.stage.moveCam('game', 1.7);
+    const entering = this.enterTable();
     const offers = Array.from({ length: 6 }, () => (Math.random() < 0.5 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
     const aiSpecial = this.makeAiDice(diff);
     const choices = await new Promise((res) => this.ui.showFate(offers, res));
+    // 镜头还没落到牌桌上（过场动画还在播）就等它播完，骰子再落下来
+    await entering;
     if (id !== this.matchId) return;
     const human = offers.map((o, i) => (o && choices[i] ? o : { typeId: NORMAL_ID, variant: 0 }));
     const ai = shuffle([...aiSpecial, ...Array.from({ length: 6 - aiSpecial.length }, () => ({ typeId: NORMAL_ID, variant: 0 }))]);
@@ -329,6 +310,9 @@ export class Game {
       score: 0,
       kept: 0,
     }));
+    // 掷币定先手（头像朝上你先、十字朝上对手先），币最后落在先手那摞钱上
+    const first = await this.tossCoin(id);
+    if (first === null) return;
     // 骰子落到桌上
     const drops = [];
     this.players.forEach((P, pi) => {
@@ -359,11 +343,14 @@ export class Game {
       mode: null,
       selection: null,
       status: null,
-      log: [],
+      first,
+      log: [(tt) => tt.tossLog(first === 0)],
     });
     await Promise.all(drops);
+    // 骰子还在往下落时就回了菜单：不再弹“谁先手”
+    if (id !== this.matchId) return;
     try {
-      await this.runMatch(id);
+      await this.runMatch(id, first);
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;
     }
@@ -381,17 +368,23 @@ export class Game {
     s.log = [...(s.log || []), fn].slice(-12);
   }
 
-  async runMatch(id) {
+  // 掷币定先手：返回先手是谁（0 玩家、1 对手）；中途回了菜单返回 null
+  async tossCoin(id) {
     const t = i18n.t;
-    // 对手还在走过来 / 坐下：等他坐稳再开始
-    if (this.tavern?.crowd && !this.tavern.crowd.isReady()) {
-      await this.tavern.crowd.whenReady();
-      this.check(id);
-    }
-    let cur = Math.random() < 0.5 ? 0 : 1;
-    this.ui.banner(cur === 0 ? t.firstYou : t.firstOpp, '', 'turn', 1600);
-    this.audio.coins();
-    await this.wait(2.0, id);
+    if (!this.toss) this.toss = new CoinToss(this.stage, this.audio, this.tavern.stacks);
+    const heads = Math.random() < 0.5;
+    this.ui.banner(t.tossTitle, t.tossRule, 'toss', 2200);
+    const ok = await this.toss.play(heads, () => {
+      const icons = groschenIcons();
+      this.ui.banner(heads ? t.tossHeads : t.tossCross, heads ? t.firstYouShort : t.firstOppShort, 'toss-result ' + (heads ? 'you' : 'opp'), 2400, heads ? icons.heads : icons.cross);
+    });
+    if (!ok || id !== this.matchId) return null;
+    return heads ? 0 : 1;
+  }
+
+  async runMatch(id, first) {
+    let cur = first;
+    await this.wait(0.4, id);
     for (;;) {
       const r = await this.playTurn(cur, id);
       if (r === 'win') {
@@ -438,7 +431,6 @@ export class Game {
         this.audio.groan();
         this.audio.sting(false);
         this.ui.banner(t().bust, t().bustSub, 'bust', 2200);
-        this.tavern?.crowd?.react('bust');
         this.log((tt) => tt.logBust(tt.who(pi)));
         this.turn = 0;
         this.ui.updateHud({ turnScore: 0 });
@@ -449,7 +441,6 @@ export class Game {
       if (best.score >= 1000) {
         this.audio.cheer(best.score >= 2000);
         this.ui.banner(t().big, `${best.score}`, 'big', 1700);
-        this.tavern?.crowd?.react('big');
       }
 
       const choice = pi === 0 ? await this.humanChoose(P, pool, id) : await this.aiChoose(P, O, pool, id);
@@ -704,53 +695,26 @@ export class Game {
     this.ui.popScore(text, (c.x + 1) * 0.5 * window.innerWidth, (1 - c.y) * 0.5 * window.innerHeight);
   }
 
-  // 胜利时从天而降的金币
+  // 胜利时从天而降的格罗申：难度越高撒得越多（src/render/coinShower.js）
   coinShower() {
-    const mat = new THREE.MeshStandardMaterial({ color: '#f2c860', metalness: 0.85, roughness: 0.3, envMapIntensity: 2.4, transparent: true });
-    const geo = new THREE.CylinderGeometry(0.55, 0.55, 0.12, 20);
-    const coins = [];
-    for (let i = 0; i < 46; i++) {
-      const m = new THREE.Mesh(geo, mat);
-      const x = rand(-7.2, 7.2);
-      const z = rand(-4.6, 4.6);
-      const y0 = rand(14, 30);
-      m.position.set(x, y0, z);
-      m.castShadow = true;
-      this.scene.add(m);
-      coins.push({ m, x, z, y0, spin: new V3(rand(-12, 12), rand(-4, 4), rand(-12, 12)), delay: rand(0, 1.2), done: false });
-    }
-    let time = 0;
-    const off = this.stage.add((dt) => {
-      time += dt;
-      let all = true;
-      for (const c of coins) {
-        const tt = time - c.delay;
-        if (tt < 0) {
-          all = false;
-          continue;
-        }
-        const y = c.y0 - 30 * tt * tt;
-        if (y > 0.07) {
-          all = false;
-          c.m.position.y = y;
-          c.m.rotation.x += c.spin.x * dt;
-          c.m.rotation.y += c.spin.y * dt;
-          c.m.rotation.z += c.spin.z * dt;
-        } else if (!c.done) {
-          c.done = true;
-          c.m.position.y = 0.07;
-          c.m.rotation.set(0, rand(0, 6), 0);
-          if (Math.random() < 0.35) this.audio.ping({ freq: rand(2600, 4200), dur: 0.2, gain: 0.04, type: 'triangle' });
-        }
-      }
-      if (time > 10) mat.opacity = Math.max(0, 1 - (time - 10));
-      if (all && time > 11) {
-        off();
-        coins.forEach((c) => this.scene.remove(c.m));
-        geo.dispose();
-        mat.dispose();
-      }
+    this.stopCoins?.();
+    const count = { casual: 90, novice: 160, regular: 260, king: 420 }[this.difficulty] || 160;
+    // 落在钱摞上就停在摞顶（掷币那枚还在上面的话再高一枚）
+    const marker = this.toss?.coin.visible ? this.toss.coin.position : null;
+    const stacks = (this.tavern?.stacks || []).map((st) => {
+      const top = st.position.y + st.userData.top - G_REST;
+      const onTop = marker && Math.hypot(marker.x - st.position.x, marker.z - st.position.z) < 0.5;
+      return { x: st.position.x, z: st.position.z, top: onTop ? top + G_STEP : top };
     });
+    const dice = this.dice.filter((d) => d.group.visible).map((d) => ({ x: d.group.position.x, z: d.group.position.z, top: d.group.position.y + 0.5 }));
+    // 骰盅、锡酒杯、钱袋那里不撒
+    const avoid = [...this.cupRest.map((p) => ({ x: p.x, z: p.z, r: 2.4 })), { x: 17.6, z: -3.9, r: 2.2 }, { x: -12.4, z: 13.2, r: 1.8 }, { x: 12.4, z: -13.4, r: 1.8 }];
+    const sh = coinShower(this.stage, this.audio, { count, dice, stacks, avoid });
+    const stop = (animated) => {
+      sh.stop(animated);
+      if (this.stopCoins === stop) this.stopCoins = null;
+    };
+    this.stopCoins = stop;
   }
 
   // ---------- 结算 ----------

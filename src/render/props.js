@@ -524,7 +524,7 @@ export function plankDoor(mats, { width = 52, height = 100 } = {}) {
 }
 
 // ---------- 酒馆招牌 ----------
-export function tavernSign(mats, title = '亨利广场') {
+export function tavernSign(mats, title = '亨利酒馆') {
   const g = new THREE.Group();
   const c = makeCanvas(512, 256);
   const ctx = c.getContext('2d');

@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const r = (...p) => path.join(root, ...p);
-const outFile = r('亨利广场.html');
+const outFile = r('亨利酒馆.html');
 
 // 1. 语音：去掉首尾静音后转 base64
 function trimWav(buf) {
@@ -82,15 +82,19 @@ const font = (pkg, file, family, style = 'normal', weight = 400) => {
   const b64 = fs.readFileSync(p).toString('base64');
   return `@font-face{font-family:'${family}';font-style:${style};font-weight:${weight};font-display:swap;src:url(data:font/woff2;base64,${b64}) format('woff2');}`;
 };
+// v3.4 中世纪风：标题 Cinzel（罗马碑刻大写），正文 IM Fell English（17 世纪活字），火漆上的字母 Grenze Gotisch（哥特体）
 const fontFaces = [
-  font('grenze-gotisch', 'grenze-gotisch-latin-400-normal.woff2', 'Grenze Gotisch', 'normal', 400),
-  font('grenze-gotisch', 'grenze-gotisch-latin-600-normal.woff2', 'Grenze Gotisch', 'normal', 600),
   font('grenze-gotisch', 'grenze-gotisch-latin-700-normal.woff2', 'Grenze Gotisch', 'normal', 700),
-  font('alegreya', 'alegreya-latin-400-normal.woff2', 'Alegreya', 'normal', 400),
-  font('alegreya', 'alegreya-latin-500-normal.woff2', 'Alegreya', 'normal', 500),
-  font('alegreya', 'alegreya-latin-700-normal.woff2', 'Alegreya', 'normal', 700),
-  font('alegreya', 'alegreya-latin-400-italic.woff2', 'Alegreya', 'italic', 400),
+  font('cinzel', 'cinzel-latin-700-normal.woff2', 'Cinzel', 'normal', 700),
+  font('cinzel', 'cinzel-latin-900-normal.woff2', 'Cinzel', 'normal', 900),
+  font('im-fell-english', 'im-fell-english-latin-400-normal.woff2', 'IM Fell English', 'normal', 400),
+  font('im-fell-english', 'im-fell-english-latin-400-italic.woff2', 'IM Fell English', 'italic', 400),
 ];
+// 数字统一用 Cinzel 的罗马碑刻数字（IM Fell 的老式数字 1 像 ı、0 像 o，计分不好认）：只覆盖 0-9
+for (const [file, w] of [['cinzel-latin-500-normal.woff2', 400], ['cinzel-latin-700-normal.woff2', 700]]) {
+  const f = font('cinzel', file, 'Henry Digits', 'normal', w);
+  if (f) fontFaces.push(f.replace("format('woff2');}", "format('woff2');unicode-range:U+0030-0039;}"));
+}
 // 中文标题字体：思源宋体（可变字重），只保留游戏里用到的字，体积很小
 const cjkSource = r('tools', 'fonts', 'NotoSerifSC-VF.ttf');
 if (fs.existsSync(cjkSource)) {
@@ -129,23 +133,38 @@ async function buildHtml() {
   let html = fs.readFileSync(r('src', 'index.html'), 'utf8');
   html = html.replace('/*__FONTS__*/', () => fonts);
   html = html.replace('/*__STYLE__*/', () => css);
+  // 界面材质（tools/ui/make_textures.py 生成的羊皮纸、皮革、金箔）写成 CSS 变量
+  const uiDir = r('assets', 'ui');
+  const tex = fs.existsSync(uiDir) ? fs.readdirSync(uiDir).filter((x) => x.endsWith('.webp')).sort().map((f) => `--tex-${path.basename(f, '.webp')}:url(data:image/webp;base64,${fs.readFileSync(path.join(uiDir, f)).toString('base64')});`) : [];
+  html = html.replace('/*__UITEX__*/', () => `:root{${tex.join('')}}`);
   // 图标：标签页用 SVG，苹果设备桌面图标用 tools/make_icon.mjs 导出的 PNG
   const { ICON_DATA_URI } = await import(pathToFileURL(r('src', 'ui', 'icon.js')).href + '?t=' + Date.now());
   html = html.replace('__ICON_SVG__', () => ICON_DATA_URI);
   const png = r('assets', 'icon-180.png');
   html = html.replace('__ICON_PNG__', () => (fs.existsSync(png) ? 'data:image/png;base64,' + fs.readFileSync(png).toString('base64') : ICON_DATA_URI));
   html = html.replace('/*__SCRIPT__*/', () => js.replace(/<\/script/gi, '<\\/script'));
-  // 模型（Blender 导出的 GLB、全景 HDR）以 base64 内嵌，双击打开的本地文件也能直接读
+  // 模型（Blender 导出的 GLB、全景 HDR）和过场动画（AV1 视频）以 base64 内嵌，双击打开的本地文件也能直接读
   const modelDir = r('assets', 'models');
   const tags = [];
-  for (const [id, file] of [['tavern', 'tavern.glb'], ['dicer', 'dicer.glb'], ['drinker', 'drinker.glb'], ['elder', 'elder.glb'], ['barmaid', 'barmaid.glb'], ['props', 'props.glb'], ['probe', 'probe.hdr']]) {
+  for (const [id, file] of [['tavern', 'tavern.glb'], ['props', 'props.glb'], ['probe', 'probe.hdr']]) {
     const p = path.join(modelDir, file);
     if (fs.existsSync(p)) tags.push(`<script type="text/plain" id="asset-${id}">${fs.readFileSync(p).toString('base64')}</script>`);
   }
   const meta = path.join(modelDir, 'tavern.json');
   if (fs.existsSync(meta)) tags.push(`<script type="application/json" id="asset-tavern-meta">${fs.readFileSync(meta, 'utf8')}</script>`);
-  const pmeta = path.join(modelDir, 'people.json');
-  if (fs.existsSync(pmeta)) tags.push(`<script type="application/json" id="asset-people-meta">${fs.readFileSync(pmeta, 'utf8')}</script>`);
+  // 格罗申的贴图（tools/coin/make_coin.py 生成的 WebP）
+  const coinDir = r('assets', 'coin');
+  if (fs.existsSync(coinDir)) {
+    for (const f of fs.readdirSync(coinDir).filter((x) => x.endsWith('.webp')).sort()) tags.push(`<script type="text/plain" id="asset-coin-${path.basename(f, '.webp')}">${fs.readFileSync(path.join(coinDir, f)).toString('base64')}</script>`);
+  }
+  // 过场动画由 tools/anim/finish_clips.py 生成（cutscenes.json 列出每一段）
+  const csDir = r('assets', 'cutscenes');
+  const csMeta = path.join(csDir, 'cutscenes.json');
+  if (fs.existsSync(csMeta)) {
+    const cs = JSON.parse(fs.readFileSync(csMeta, 'utf8'));
+    for (const name of Object.keys(cs.clips)) tags.push(`<script type="text/plain" id="asset-cs-${name}">${fs.readFileSync(path.join(csDir, name + '.mp4')).toString('base64')}</script>`);
+    tags.push(`<script type="application/json" id="asset-cutscenes-meta">${JSON.stringify(cs)}</script>`);
+  }
   html = html.replace('<div id="app"></div>', () => tags.join('\n') + '\n<div id="app"></div>');
   fs.writeFileSync(outFile, html);
 }
@@ -156,7 +175,8 @@ if (!thumbsOk) {
   spawnSync(process.execPath, [r('tools', 'make_thumbs.mjs'), outFile, thumbHash], { stdio: 'inherit' });
   if (fs.readFileSync(thumbsFile, 'utf8').includes(`"hash":"${thumbHash}"`)) await buildHtml();
 }
-// 旧版文件名（v1.0）
+// 旧版文件名：v1.0 的「骰子酒馆.html」删掉；v1.1–v3.3 的「亨利广场.html」留一个跳转页，旧的网址和收藏还能打开
 const oldFile = r('骰子酒馆.html');
 if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+fs.writeFileSync(r('亨利广场.html'), fs.readFileSync(r('index.html'), 'utf8'));
 console.log('built', outFile, (fs.statSync(outFile).size / 1024 / 1024).toFixed(2) + ' MB');

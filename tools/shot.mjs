@@ -89,7 +89,7 @@ for (const s of steps.steps) {
   }
   if (s.shot) {
     // clip: [x, y, 宽, 高, 放大倍数] 只截一块并放大，看细节用
-    const opt = { format: 'jpeg', quality: 82 };
+    const opt = s.shot.endsWith('.png') ? { format: 'png' } : { format: 'jpeg', quality: 82 };
     if (s.clip) opt.clip = { x: s.clip[0], y: s.clip[1], width: s.clip[2], height: s.clip[3], scale: s.clip[4] || 2 };
     const res = await send('Page.captureScreenshot', opt);
     fs.writeFileSync(path.join(outDir, s.shot), Buffer.from(res.result.data, 'base64'));

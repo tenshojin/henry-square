@@ -32,7 +32,7 @@ const STR = {
       king: { name: '斯卡利茨骰子王', who: '传说中的骰子王', desc: '据说从没输过一局' },
     },
     fateTitle: '命运之骰',
-    fateSub: '每枚骰子有一半机会获得特殊替代。点选下方骰子，查看并决定是否替换。',
+    fateSub: '每枚骰子有一半机会获得特殊替代。金色描边的骰子可以更换，点选后查看。',
     fateNone: '命运今晚没有眷顾你——六枚都是普通骰子。',
     slot: (i) => `第 ${i} 枚`,
     keepNormal: '保留普通',
@@ -49,6 +49,10 @@ const STR = {
     selected: '所选',
     invalid: '所选骰子无法全部计分',
     pickHint: '点击骰子挑出计分组合',
+    pickNameHint: '点选骰子，查看名称',
+    holdBank: '长按收分过手',
+    holdHint: '按住确认 · 松开取消',
+    holdingHint: '继续按住……',
     roll: '掷骰',
     rollAgain: '留下并再掷',
     rollAll: '留下并重掷六枚',
@@ -164,7 +168,7 @@ const STR = {
       king: { name: 'Dice King of Skalitz', who: 'The legend himself', desc: 'Said never to have lost a game' },
     },
     fateTitle: 'Dice of Fate',
-    fateSub: 'Each die has an even chance of a special offer. Select a die below to compare your choices.',
+    fateSub: 'Each die has an even chance of a special offer. Gold-bordered dice can be swapped. Select one to compare.',
     fateNone: 'Fate passed you by tonight — all six are common dice.',
     slot: (i) => `Die ${i}`,
     keepNormal: 'Keep',
@@ -181,6 +185,10 @@ const STR = {
     selected: 'Selected',
     invalid: 'Every selected die must score',
     pickHint: 'Click dice to set aside a scoring combo',
+    pickNameHint: 'Select a die to see its name',
+    holdBank: 'Hold to Bank',
+    holdHint: 'Release to cancel',
+    holdingHint: 'Keep holding…',
     roll: 'Roll',
     rollAgain: 'Keep & Roll',
     rollAll: 'Keep & Roll all six',
@@ -275,7 +283,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v4.0';
+export const VERSION = 'v4.1';
 
 export const i18n = {
   get lang() {

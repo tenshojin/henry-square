@@ -106,9 +106,9 @@ export class Game {
         e.preventDefault();
         if (s.mode === 'roll' && s.onRoll) s.onRoll();
         else if (s.mode === 'choose' && s.selection?.valid && s.onKeepRoll) s.onKeepRoll();
-      } else if (e.code === 'Enter') {
+      } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
         e.preventDefault();
-        if (s.mode === 'choose' && s.selection?.valid && s.onBank) s.onBank();
+        if (s.mode === 'choose' && s.selection?.valid) this.ui.bankHold?.startKey(e);
       } else if (/^[1-6]$/.test(e.key) && s.mode === 'choose') {
         e.preventDefault();
         s.onPickDie?.(Number(e.key) - 1);
@@ -539,7 +539,7 @@ export class Game {
   }
 
   humanChoose(P, pool, id) {
-    const t = i18n.t;
+    let inspectedDie = null;
     pool.forEach((d) => {
       d.selected = false;
       d.ringTarget = 0;
@@ -553,9 +553,11 @@ export class Game {
     };
     return new Promise((res, rej) => {
       this.cancelWait = rej;
+      let settled = false;
       const done = (bank) => {
         const s = state();
-        if (!s.valid) return;
+        if (settled || !s.valid) return;
+        settled = true;
         let mask = 0;
         pool.forEach((d, i) => {
           if (d.selected) mask |= 1 << i;
@@ -564,13 +566,16 @@ export class Game {
         this.onDieClick = null;
         this.cancelWait = null;
         pool.forEach((d) => (d.ringTarget = 0));
+        this.ui.updateHud({ mode: null, selection: null, diceChoices: null, inspectedDie: null });
         res({ mask, bank });
       };
       const refresh = () => this.ui.updateHud({ mode: 'choose', selection: state(), turnScore: this.turn,
-        diceChoices: pool.map((d) => ({ value: d.value, joker: d.isJoker, selected: d.selected })),
+        diceChoices: pool.map((d) => ({ typeId: d.typeId, variant: d.variant, value: d.value, joker: d.isJoker, selected: d.selected })),
+        inspectedDie,
         onPickDie: (i) => { if (this.selectable && pool[i]) this.onDieClick?.(pool[i]); },
         onKeepRoll: () => done(false), onBank: () => done(true) });
       this.onDieClick = (die) => {
+        inspectedDie = pool.indexOf(die);
         die.selected = !die.selected;
         die.ringTarget = die.selected ? 1 : 0;
         this.audio.select(die.selected);

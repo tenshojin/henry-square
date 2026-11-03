@@ -2,13 +2,14 @@
 // 这里只负责：还原光照贴图、给人物和骰子打光（全景环境光 + 吊灯主光 + 壁炉火光）、
 // 在标记点上放会动的火焰、搭骰盘、摆钱币、开场时转动大门。
 import * as THREE from 'three';
+import { COIN_STACKS, LOOSE_COINS } from './coinLayout.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { loadGLB, assetBuffer, assetJSON } from './assets.js';
 import { createHearthFire, makeCandleFlameMaterial, createDust } from './fire.js';
 import { canvasTexture, leatherTexture } from './canvasTex.js';
 import { beamWood, pbr } from './ptex.js';
 import * as P from './props.js';
-import { loadGroschen, groschenStack, groschenPurse, makeGroschen, G_H } from './groschen.js';
+import { loadGroschen, groschenStack, groschenPurse, makeGroschen, G_REST } from './groschen.js';
 
 export const UNIT = 50; // 1 米 = 50 个游戏单位（骰子、骰盘、物理都按这个尺度）
 export const FLOOR_Y = -38;
@@ -202,19 +203,19 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
     if (lights.tableCandle) lights.tableCandle.intensity = 70 * (0.85 + Math.sin(t * 12) * 0.1);
   });
 
-  // ---------- 骰盘和钱币（格罗申；掷币定先手后那枚币落到先手一方最高的那摞上） ----------
+  // ---------- 骰盘与金、银、铜钱币；大金币在先手一侧单独平放 ----------
   buildTray(scene);
   await loadGroschen(renderer);
-  const stacks = [place(groschenStack(7, 11), -8.4, TABLE_Y, 9.4), place(groschenStack(6, 14), 8.4, TABLE_Y, -9.4)];
+  const stacks = COIN_STACKS.map(({ metal, n, seed, x, z }) => place(groschenStack(n, seed, metal), x, TABLE_Y, z));
   scene.add(...stacks);
-  scene.add(place(groschenStack(5, 12), -6.8, TABLE_Y, 10.4));
   scene.add(place(groschenPurse(13), -12.4, TABLE_Y, 13.2, 0.5));
-  scene.add(place(groschenStack(5, 15), 6.8, TABLE_Y, -10.4));
-  scene.add(place(groschenPurse(16), 12.4, TABLE_Y, -13.4, 3.4));
-  const loose = makeGroschen({ seg: 48, variant: 1 });
-  loose.position.set(-4.6, TABLE_Y + G_H * 0.6, 11.6);
-  loose.rotation.y = 0.7;
-  scene.add(loose);
+  scene.add(place(groschenPurse(16), 13.0, TABLE_Y, -14.8, 3.4));
+  for (const [i, spec] of LOOSE_COINS.entries()) {
+    const loose = makeGroschen({ seg: 48, variant: i, metal: spec.metal });
+    loose.position.set(spec.x, TABLE_Y + G_REST * loose.scale.x, spec.z);
+    loose.rotation.y = spec.yaw;
+    scene.add(loose);
+  }
 
   const dust = createDust({ minX: -150, maxX: 150, minY: -34, maxY: 100, minZ: -180, maxZ: 110 }, 1100);
   scene.add(dust);

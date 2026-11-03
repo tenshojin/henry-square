@@ -8,3 +8,6 @@ tools/fonts/
 
 # Blender 脚本运行时生成的 Python 缓存
 __pycache__/
+
+# Local browser fault-injection fixtures
+.qa/

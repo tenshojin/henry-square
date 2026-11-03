@@ -64,7 +64,8 @@ export class Stage {
     this.fovFixK = 1; // 窄屏加大视角的程度（和视频衔接时先按视频的视角，再慢慢放开）
     this.videoAspect = 0; // 过场动画的宽高比（视频按高度铺满屏幕；比它还宽的屏幕上下会裁掉一点）
 
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    // Composer applies pixelRatio itself. Supplying physical pixels here squared DPR.
+    const size = renderer.getSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -101,6 +102,8 @@ export class Stage {
     this.composer.addPass(this.grade);
     // ?hq：锁定最高画质（无头浏览器截图自测用，软件渲染很慢，不锁会被自动降画质）
     this.quality = { level: location.search.includes('hq') ? -1 : 2, frames: 0, acc: 0 };
+    this.pixelRatioCap = 2;
+    this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // 一帧最多推进多少秒（卡顿时不会跳太远）。?maxdt=0.25：无头浏览器自测时帧率很低，让动画跟上真实时间
     const md = /maxdt=([0-9.]+)/.exec(location.search);
@@ -121,7 +124,7 @@ export class Stage {
     const w = window.innerWidth;
     const h = window.innerHeight;
     // 窗口拖到不同缩放比例的显示器时同步像素比
-    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    const pr = Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
     if (pr !== this.renderer.getPixelRatio()) {
       this.renderer.setPixelRatio(pr);
       this.composer.setPixelRatio(pr);
@@ -131,7 +134,9 @@ export class Stage {
     this.camera.aspect = w / h;
     // 窄屏时加大视角，保证整张桌子可见
     const aspect = w / h;
-    this.fovFix = aspect < 1.6 ? Math.min(30, (1.6 / aspect - 1) * 38) : 0;
+    // Keep the neutral coin and a clear gap beside the dice rows visible on narrow screens.
+    const fit = 2 * Math.atan(Math.tan(GAME_CAM.fov * Math.PI / 360) * Math.max(1, 1.6 / aspect)) * 180 / Math.PI;
+    this.fovFix = fit - GAME_CAM.fov;
     this.camera.updateProjectionMatrix();
   }
 
@@ -141,11 +146,12 @@ export class Stage {
   }
 
   frame() {
-    if (this.paused) {
+    if (this.paused || this.interactionPaused || document.hidden) {
       this.clock.getDelta();
       return;
     }
-    const dt = Math.min(this.clock.getDelta(), this.maxDt);
+    const elapsed = this.clock.getDelta();
+    const dt = Math.min(elapsed, this.maxDt);
     this.time += dt;
     const t = this.time;
     for (const tw of [...this.tweens]) {
@@ -166,13 +172,13 @@ export class Stage {
     }
     this.grade.uniforms.uTime.value = t;
     this.composer.render();
-    this.watchQuality(dt);
+    if (!document.hidden && elapsed < 0.5) this.watchQuality(elapsed);
   }
 
   // 牌桌机位此刻的位置（带呼吸）；别处临时接管镜头（掷币时推近）时从这里出发、回到这里
   gamePos(t = this.time, v = new THREE.Vector3()) {
     const p = GAME_CAM.pos;
-    const wb = this.wobble;
+    const wb = this.reducedMotion ? 0 : this.wobble;
     return v.set(p.x + Math.sin(t * 0.21) * 0.25 * wb, p.y + Math.sin(t * 0.33) * 0.15 * wb, p.z + Math.sin(t * 0.17) * 0.2 * wb);
   }
 
@@ -188,13 +194,12 @@ export class Stage {
     q.acc = 0;
     if (avg < 1 / 40) return;
     if (q.level === 2) {
-      this.gtao.enabled = false;
+      this.bloom.enabled = false;
       q.level = 1;
     } else if (q.level === 1) {
-      this.renderer.setPixelRatio(1);
-      this.composer.setPixelRatio(1);
-      this.resize();
+      this.pixelRatioCap = 1;
       q.level = 0;
+      this.resize();
     }
   }
 

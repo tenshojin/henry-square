@@ -1,21 +1,25 @@
 // 开局前掷币定先手（v3.4）：亚历山大格罗申从画面下方弹起，在眼前翻转、迎着吊灯一闪一闪，
 // 落进骰盘中央弹一下、立着越转越快（欧拉盘）后啪地躺平；镜头推近看清朝上的面，
-// 然后这枚币飞到先手一方那摞钱的顶上，整局留在那里提醒谁先手（下一局开始或回菜单时收走）。
+// 看清结果后，金币轻抬并平放到左侧中立区域（下一局开始或回菜单时收走）。
 // 头像朝上 = 玩家先手，十字朝上 = 对手先手。
 import * as THREE from 'three';
 import { GAME_CAM, easeInOut } from './stage.js';
 import { TABLE_Y } from './world.js';
 import { makeGroschen, G_R, G_REST } from './groschen.js';
+import { NEUTRAL_COIN_SPOT, TOSS_SCALE } from './coinLayout.js';
 
 const TRAY_Y = TABLE_Y + 0.31; // 骰盘皮面
-const S = new THREE.Vector3(0.6, 13.0, 14.6); // 起点：镜头下方、画面外
-const A = new THREE.Vector3(0.25, 17.3, 12.25); // 最高点：离镜头很近，画面中上方
+export { TOSS_SCALE };
+const RADIUS = G_R * TOSS_SCALE;
+const REST = G_REST * TOSS_SCALE;
+const S = new THREE.Vector3(0.6, 8.5, 12.0);
+const A = new THREE.Vector3(0.25, 13.5, 6.5);
 const T_UP = 0.5; // 上升
 const T_DOWN = 1.0; // 下落
 const SPIN = 5; // 空中翻几圈
 const TILT = 0.45; // 落下时币面和桌面的夹角（弧度），接着立着打转
 const ANG0 = 1.1; // 弹起时币已经斜着（平躺着进画面会正好把吊灯反射进镜头，离镜头近，泛光成一大团）
-const L = new THREE.Vector3(0, TRAY_Y + G_R * Math.sin(TILT) + G_REST * Math.cos(TILT), 1.55); // 落点（斜着、边先着地；落下后还会往前滑一点）
+const L = new THREE.Vector3(0, TRAY_Y + RADIUS * Math.sin(TILT) + REST * Math.cos(TILT), 1.55);
 const WOBBLE = 1.25; // 立着打转多久
 const HOP = 0.24; // 落下后弹起一下
 const SLIDE = 0.3; // 落下后往前滑
@@ -61,11 +65,11 @@ function glintTexture() {
 }
 
 export class CoinToss {
-  constructor(stage, audio, stacks) {
+  constructor(stage, audio) {
     this.stage = stage;
     this.audio = audio;
-    this.stacks = stacks; // [玩家那摞, 对手那摞]
-    this.coin = makeGroschen({ seg: 160 });
+    this.coin = makeGroschen({ seg: 160, metal: 'gold', scale: TOSS_SCALE });
+    this.coin.name = 'first-player-gold-sovereign';
     this.coin.visible = false;
     stage.scene.add(this.coin);
     this.glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: glintTexture(), blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true, opacity: 0 }));
@@ -88,11 +92,11 @@ export class CoinToss {
     const qFace = new THREE.Quaternion().setFromAxisAngle(X, target);
     const spinEnd = SPIN * Math.PI * 2 + target + TILT;
     const yaw0 = (Math.random() - 0.5) * 0.5;
-    const stack = this.stacks[heads ? 0 : 1];
-    const top = stack.position.clone().add(new THREE.Vector3(0, stack.userData.top, 0));
+    const parked = new THREE.Vector3(NEUTRAL_COIN_SPOT.x, TABLE_Y + REST, NEUTRAL_COIN_SPOT.z);
+    const carryY = TABLE_Y + 1.35 + REST; // Clear the wooden rim while keeping the coin flat.
     const landSpeed = 4.4; // 落下瞬间往前（-Z）的速度，滑一小段
-    const rest = new THREE.Vector3(L.x, TRAY_Y + G_REST, L.z - (landSpeed * SLIDE) / 2);
-    const camClose = rest.clone().add(new THREE.Vector3(0, 5.6, 3.6));
+    const rest = new THREE.Vector3(L.x, TRAY_Y + REST, L.z - (landSpeed * SLIDE) / 2);
+    const camClose = rest.clone().add(new THREE.Vector3(0, 9.4, 6.3));
     const camPos = new THREE.Vector3();
     const look = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -104,14 +108,15 @@ export class CoinToss {
     const T_FLY = T_UP + T_DOWN;
     const T_REST = T_FLY + WOBBLE; // 躺平
     const T_PUSH = T_FLY + WOBBLE - 0.4; // 镜头开始推近
-    const T_BACK = T_REST + 1.6; // 镜头开始拉回，币飞向那摞钱
-    const T_END = T_BACK + 0.85;
+    const T_BACK = T_REST + 2.6;
+    const T_PLACE = 1.2;
+    const T_END = T_BACK + T_PLACE;
     let time = 0;
     let phi = 0;
     let half = 0;
     let glint = 0;
     let glintCool = 0;
-    const fired = { land: false, hop: false, settle: false, result: false, stack: false };
+    const fired = { land: false, hop: false, settle: false, result: false, placed: false };
     coin.visible = true;
     coin.position.copy(S);
     coin.quaternion.identity();
@@ -149,7 +154,7 @@ export class CoinToss {
           coin.quaternion.copy(qa).multiply(qFace);
           const hop = tl < HOP ? 0.5 * Math.sin((Math.PI * tl) / HOP) : 0;
           const sl = Math.min(tl, SLIDE);
-          coin.position.set(L.x, TRAY_Y + G_R * Math.sin(alpha) + G_REST * Math.cos(alpha) + hop, L.z - landSpeed * (sl - (sl * sl) / (2 * SLIDE)));
+          coin.position.set(L.x, TRAY_Y + RADIUS * Math.sin(alpha) + REST * Math.cos(alpha) + hop, L.z - landSpeed * (sl - (sl * sl) / (2 * SLIDE)));
           if (!fired.land) {
             fired.land = true;
             au.coinLand(1);
@@ -166,20 +171,20 @@ export class CoinToss {
             au.coinSettle();
           }
         } else if (t < T_END) {
-          // 飞到先手那摞钱的顶上：抛物线 + 绕水平轴翻一圈（落下时还是同一面朝上）
-          const k = easeInOut((t - T_BACK) / (T_END - T_BACK));
-          coin.position.lerpVectors(rest, top, k);
-          coin.position.y += 3.2 * Math.sin(Math.PI * k);
-          const dir = toL.subVectors(top, rest).setY(0).normalize();
-          const ax = n.crossVectors(Y, dir).normalize();
-          qa.setFromAxisAngle(ax, Math.PI * 2 * k);
-          coin.quaternion.copy(qa).multiply(qFace);
-        } else {
-          coin.position.copy(top);
+          // Lift, carry level over the rim, then set down in the same neutral spot for either result.
+          const u = (t - T_BACK) / T_PLACE;
+          const across = easeInOut(THREE.MathUtils.clamp((u - .18) / .64, 0, 1));
+          coin.position.lerpVectors(rest, parked, across);
+          if (u < .18) coin.position.y = THREE.MathUtils.lerp(rest.y, carryY, easeInOut(u / .18));
+          else if (u > .82) coin.position.y = THREE.MathUtils.lerp(carryY, parked.y, easeInOut((u - .82) / .18));
+          else coin.position.y = carryY;
           coin.quaternion.copy(qFace);
-          if (!fired.stack) {
-            fired.stack = true;
-            au.coinClink(true);
+        } else {
+          coin.position.copy(parked);
+          coin.quaternion.copy(qFace);
+          if (!fired.placed) {
+            fired.placed = true;
+            au.coinClink(false, -0.6, 0.6);
             this.finish(true);
             return;
           }
@@ -191,16 +196,16 @@ export class CoinToss {
         // ---------- 镜头：躺平前推近，看清后拉回牌桌机位 ----------
         if (t >= T_PUSH) {
           const kIn = easeInOut(Math.min(1, (t - T_PUSH) / 1.0));
-          const kOut = t > T_BACK ? easeInOut(Math.min(1, (t - T_BACK) / 0.9)) : 0;
+          const kOut = t > T_BACK ? easeInOut(Math.min(1, (t - T_BACK) / T_PLACE)) : 0;
           const k = kIn * (1 - kOut);
           st.camMode = 'free';
           st.gamePos(st.time, camPos).lerp(camClose, k * 0.85);
           st.camera.position.copy(camPos);
           look.copy(GAME_CAM.look).lerp(rest, k);
-          st.camera.fov = st.fovFor(GAME_CAM.fov);
+          // Keep the portrait close-up prominent, then restore the fitted table view.
+          st.camera.fov = THREE.MathUtils.lerp(st.fovFor(GAME_CAM.fov), Math.min(65, st.fovFor(GAME_CAM.fov)), k);
           st.camera.updateProjectionMatrix();
           st.camera.lookAt(look);
-          if (t > T_BACK + 0.9) st.camMode = 'game';
         }
         // ---------- 闪光：币面正好把吊灯的光反射进镜头时亮一下 ----------
         n.set(0, 1, 0).applyQuaternion(coin.quaternion);
@@ -216,7 +221,7 @@ export class CoinToss {
           glintCool = 0.25;
           au.coinGlint((coin.position.x / 12) * 0.5);
         }
-        this.glint.position.copy(coin.position).addScaledVector(axis, G_R * 0.72).addScaledVector(toV, G_R * 0.3);
+        this.glint.position.copy(coin.position).addScaledVector(axis, RADIUS * 0.72).addScaledVector(toV, RADIUS * 0.3);
         const nearK = Math.min(1, Math.max(0, (st.camera.position.distanceTo(coin.position) - 5) / 5)); // 离镜头很近时星芒淡掉（币本身已经够亮）
         this.glint.material.opacity = Math.min(1, glint) * (t < T_REST ? 0.9 : 0.5) * nearK;
         this.glint.material.rotation = t * 0.8;
@@ -228,6 +233,7 @@ export class CoinToss {
   }
 
   finish(ok) {
+    this.stage.camMode = 'game';
     if (this.off) this.off();
     this.off = null;
     this.glint.visible = false;
@@ -245,7 +251,7 @@ export class CoinToss {
     this.finish(false);
   }
 
-  // 收走留在那摞钱顶上的那枚（下一局开始、回菜单时）
+  // 收走桌边的先手金币（下一局开始、回菜单时）
   clear() {
     this.coin.visible = false;
   }

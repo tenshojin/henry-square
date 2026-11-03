@@ -7,11 +7,12 @@ import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
 import { CoinToss } from '../render/coinToss.js';
 import { coinShower } from '../render/coinShower.js';
-import { groschenIcons, G_REST, G_STEP } from '../render/groschen.js';
+import { G_R, G_REST } from '../render/groschen.js';
 import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
 import { TABLE_Y } from '../render/world.js';
 import { easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
 import { i18n } from '../i18n.js';
+import { allowsGameShortcut } from './input.js';
 
 // 难度对应的对手（过场动画里坐在对面的人）
 export const OPPONENT_OF = { casual: 'barmaid', novice: 'drinker', regular: 'elder', king: 'dicer' };
@@ -50,6 +51,7 @@ export class Game {
     this.players = null;
     this.selectable = null;
     this.difficulty = 'regular';
+    ui.onModalChange = (open) => { stage.interactionPaused = open; };
 
     this.cupRest = [new V3(11.6, TABLE_Y, 7.4), new V3(-11.6, TABLE_Y, -7.4)];
     this.cups = [createCup({ leather: '#5a2416', seed: 9 }), createCup({ leather: '#2e2418', seed: 19 })];
@@ -75,7 +77,7 @@ export class Game {
       const hit = vis.length ? this.stage.pick(vis, e.clientX, e.clientY) : null;
       const die = hit ? hit.object.userData.die : null;
       const t = i18n.t;
-      if (die && !this.ui.modal.classList.contains('show')) {
+      if (die && !this.ui.modalOpen) {
         if (die.owner === 1) {
           this.ui.showTipPlain(t.oppDie, e.clientX, e.clientY, t.faceNow(die.value));
         } else {
@@ -92,27 +94,52 @@ export class Game {
     });
     canvas.addEventListener('pointerleave', () => this.ui.hideTip());
     canvas.addEventListener('click', (e) => {
-      if (!this.selectable) return;
+      if (!this.selectable || this.ui.modalOpen) return;
       const hit = this.stage.pick(this.selectable.map((d) => d.mesh), e.clientX, e.clientY);
       const die = hit ? hit.object.userData.die : null;
       if (die && this.onDieClick) this.onDieClick(die);
     });
     window.addEventListener('keydown', (e) => {
-      if (!this.ui.hudState || this.ui.hud.classList.contains('hidden')) return;
       const s = this.ui.hudState;
+      if (!s || !allowsGameShortcut(e, { visible: !this.ui.hud.classList.contains('hidden'), modalOpen: this.ui.modalOpen, mode: s.mode })) return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (s.mode === 'roll' && s.onRoll) s.onRoll();
         else if (s.mode === 'choose' && s.selection?.valid && s.onKeepRoll) s.onKeepRoll();
       } else if (e.code === 'Enter') {
+        e.preventDefault();
         if (s.mode === 'choose' && s.selection?.valid && s.onBank) s.onBank();
+      } else if (/^[1-6]$/.test(e.key) && s.mode === 'choose') {
+        e.preventDefault();
+        s.onPickDie?.(Number(e.key) - 1);
       }
     });
   }
 
   // ---------- 开场动画 ----------
   // 推门 → 走进酒馆、停在老人对面（视频），标题字幕在走进门之后浮现；右下角可跳过。浏览器放不了视频时直接到牌桌
+  disableCutscenes(error) {
+    console.warn('Cinematics unavailable; continuing at the table.', error);
+    this.cutscenes?.dispose();
+    this.cutscenes = null;
+    this.stage.paused = false;
+    this.stage.camMode = 'game';
+    this.stage.fovFixK = 1;
+    this.stage.wobble = 1;
+    this.audio.setInside(1);
+  }
+
   async playIntro() {
+    try { await this.playIntroSequence(); }
+    catch (error) {
+      this.disableCutscenes(error);
+      this.ui.hideSkip();
+      this.ui.hideIntro();
+      await this.ui.fade(false, 200);
+    }
+  }
+
+  async playIntroSequence() {
     const cs = this.cutscenes;
     const a = this.audio;
     if (!cs) {
@@ -140,7 +167,8 @@ export class Game {
     const skipped = new Promise((resolve) =>
       this.ui.showSkip(async () => {
         await this.ui.fade(true, 350);
-        await cs.jumpTo(OPPONENT_OF[this.difficulty]);
+        try { await cs.jumpTo(OPPONENT_OF[this.difficulty]); }
+        catch (error) { this.disableCutscenes(error); }
         a.setInside(1);
         this.ui.showIntroCaption(false);
         await this.ui.fade(false, 600);
@@ -166,7 +194,10 @@ export class Game {
   // ?nointro：直接到选对手（自测用）
   async skipIntro() {
     this.audio.setInside(1);
-    if (this.cutscenes) await this.cutscenes.jumpTo(OPPONENT_OF[this.difficulty]);
+    if (this.cutscenes) {
+      try { await this.cutscenes.jumpTo(OPPONENT_OF[this.difficulty]); }
+      catch (error) { this.disableCutscenes(error); }
+    }
   }
 
   // ---------- 菜单与开局 ----------
@@ -184,7 +215,17 @@ export class Game {
 
   setOpponent(diff) {
     this.difficulty = diff;
-    if (this.cutscenes) this.cutscenes.swapTo(OPPONENT_OF[diff]);
+    const swap = () => this.cutscenes?.swapTo(OPPONENT_OF[this.difficulty]);
+    if (this.tableTransition) this.tableTransition.then(swap);
+    else swap();
+  }
+
+  queueTableTransition(action) {
+    const job = (this.tableTransition || Promise.resolve()).then(action);
+    this.tableTransition = job;
+    const clear = () => { if (this.tableTransition === job) this.tableTransition = null; };
+    job.then(clear, clear);
+    return job;
   }
 
   // 实时画面镜头的呼吸和窄屏视角：k = 0 时和视频的机位、视角完全一样（切换的那一下用），1 时恢复正常
@@ -206,13 +247,18 @@ export class Game {
     if (!cs || this.atTable) return;
     this.atTable = true;
     const st = this.stage;
-    await cs.toTable(() => {
-      this.camEaseId = (this.camEaseId || 0) + 1;
-      st.wobble = 0;
-      st.fovFixK = 0;
-      st.camMode = 'game';
+    return this.queueTableTransition(async () => {
+      if (cs !== this.cutscenes) return;
+      try {
+        await cs.toTable(() => {
+          this.camEaseId = (this.camEaseId || 0) + 1;
+          st.wobble = 0;
+          st.fovFixK = 0;
+          st.camMode = 'game';
+        });
+      } catch (error) { this.disableCutscenes(error); }
+      this.easeLiveCam(1, 1.6);
     });
-    this.easeLiveCam(1, 1.6);
   }
 
   // 回菜单：实时画面的镜头先停到和视频第一帧一样，再淡入“从牌桌抬头看向对面”的视频
@@ -224,16 +270,21 @@ export class Game {
     }
     if (!this.atTable) return;
     this.atTable = false;
-    await this.easeLiveCam(0, 0.3);
-    await cs.fromTable();
-    // 胜利撒下的钱等抬头的视频盖住画面后再收走（视频淡入时它们跟着淡掉，视频第一帧的桌上没有它们）
-    this.stopCoins?.();
+    return this.queueTableTransition(async () => {
+      if (cs !== this.cutscenes) return;
+      await this.easeLiveCam(0, 0.3);
+      try { await cs.fromTable(); }
+      catch (error) { this.disableCutscenes(error); }
+      // Remove victory coins after the video covers the table.
+      this.stopCoins?.();
+    });
   }
 
   backToMenu() {
-    if (!this.players) return;
+    if (!this.starting && !this.players && !this.ui.fateResolve && !this.ui.tossResolve) return;
     this.cancelMatch();
     this.ui.hideHud();
+    this.ui.hideOver();
     this.ui.overEl.classList.remove('show');
     this.ui.overEl.classList.add('hidden');
     this.clearDice();
@@ -243,6 +294,9 @@ export class Game {
 
   cancelMatch() {
     this.matchId++;
+    this.starting = false;
+    this.ui.closeFate();
+    this.ui.endToss();
     if (this.cancelWait) this.cancelWait(new Cancelled());
     this.cancelWait = null;
     this.selectable = null;
@@ -261,7 +315,7 @@ export class Game {
       d.ring.material.dispose();
     }
     this.dice = [];
-    this.toss?.clear(); // 掷币后留在先手那摞钱上的那枚
+    this.toss?.clear(); // 桌边的先手金币
   }
 
   makeAiDice(diff) {
@@ -287,6 +341,7 @@ export class Game {
 
   async startMatch(diff) {
     this.cancelMatch();
+    this.starting = true;
     const id = this.matchId;
     this.clearDice();
     // 上一局胜利撒下的钱：桌面还看得见就缩小消失，被视频盖着就直接收走
@@ -297,6 +352,7 @@ export class Game {
     const offers = Array.from({ length: 6 }, () => (Math.random() < 0.5 ? { typeId: randomSpecial(), variant: Math.floor(Math.random() * 3) } : null));
     const aiSpecial = this.makeAiDice(diff);
     const choices = await new Promise((res) => this.ui.showFate(offers, res));
+    if (!choices || id !== this.matchId) return;
     // 镜头还没落到牌桌上（过场动画还在播）就等它播完，骰子再落下来
     await entering;
     if (id !== this.matchId) return;
@@ -310,7 +366,8 @@ export class Game {
       score: 0,
       kept: 0,
     }));
-    // 掷币定先手（头像朝上你先、十字朝上对手先），币最后落在先手那摞钱上
+    this.starting = false;
+    // 掷币定先手，币最后平放在左侧中立区域
     const first = await this.tossCoin(id);
     if (first === null) return;
     // 骰子落到桌上
@@ -328,8 +385,9 @@ export class Game {
         drops.push(
           this.stage.wait(0.08 * i + pi * 0.3).then(() =>
             this.stage.tween(0.45, (k) => {
+              if (id !== this.matchId) return;
               d.group.position.y = p.y + 6 * (1 - k);
-            }, easeIn).then(() => this.audio.place(0))
+            }, easeIn).then(() => { if (id === this.matchId) this.audio.place(0); })
           )
         );
       });
@@ -370,15 +428,13 @@ export class Game {
 
   // 掷币定先手：返回先手是谁（0 玩家、1 对手）；中途回了菜单返回 null
   async tossCoin(id) {
-    const t = i18n.t;
-    if (!this.toss) this.toss = new CoinToss(this.stage, this.audio, this.tavern.stacks);
+    if (!this.toss) this.toss = new CoinToss(this.stage, this.audio);
     const heads = Math.random() < 0.5;
-    this.ui.banner(t.tossTitle, t.tossRule, 'toss', 2200);
-    const ok = await this.toss.play(heads, () => {
-      const icons = groschenIcons();
-      this.ui.banner(heads ? t.tossHeads : t.tossCross, heads ? t.firstYouShort : t.firstOppShort, 'toss-result ' + (heads ? 'you' : 'opp'), 2400, heads ? icons.heads : icons.cross);
-    });
+    const acknowledged = this.ui.beginToss();
+    const ok = await this.toss.play(heads, () => this.ui.revealToss(heads));
     if (!ok || id !== this.matchId) return null;
+    this.ui.readyToss();
+    if (!await acknowledged || id !== this.matchId) return null;
     return heads ? 0 : 1;
   }
 
@@ -430,7 +486,7 @@ export class Game {
       if (!best) {
         this.audio.groan();
         this.audio.sting(false);
-        this.ui.banner(t().bust, t().bustSub, 'bust', 2200);
+        this.ui.scoreMoment('bust', 0, pi);
         this.log((tt) => tt.logBust(tt.who(pi)));
         this.turn = 0;
         this.ui.updateHud({ turnScore: 0 });
@@ -440,7 +496,8 @@ export class Game {
       }
       if (best.score >= 1000) {
         this.audio.cheer(best.score >= 2000);
-        this.ui.banner(t().big, `${best.score}`, 'big', 1700);
+        this.ui.scoreMoment('high', best.score, pi);
+        await this.wait(1.9, id);
       }
 
       const choice = pi === 0 ? await this.humanChoose(P, pool, id) : await this.aiChoose(P, O, pool, id);
@@ -509,7 +566,10 @@ export class Game {
         pool.forEach((d) => (d.ringTarget = 0));
         res({ mask, bank });
       };
-      const refresh = () => this.ui.updateHud({ mode: 'choose', selection: state(), turnScore: this.turn, onKeepRoll: () => done(false), onBank: () => done(true) });
+      const refresh = () => this.ui.updateHud({ mode: 'choose', selection: state(), turnScore: this.turn,
+        diceChoices: pool.map((d) => ({ value: d.value, joker: d.isJoker, selected: d.selected })),
+        onPickDie: (i) => { if (this.selectable && pool[i]) this.onDieClick?.(pool[i]); },
+        onKeepRoll: () => done(false), onBank: () => done(true) });
       this.onDieClick = (die) => {
         die.selected = !die.selected;
         die.ringTarget = die.selected ? 1 : 0;
@@ -555,10 +615,11 @@ export class Game {
       d.ringY = TABLE_Y + 0.02;
       return this.stage.wait(k * 0.07).then(() =>
         this.stage.tween(0.5, (e) => {
+          if (id !== this.matchId) return;
           d.group.position.lerpVectors(p0, target, e);
           d.group.position.y += Math.sin(e * Math.PI) * 2.4;
           d.group.quaternion.slerpQuaternions(q0, q1, e);
-        }, easeInOut).then(() => this.audio.place(0))
+        }, easeInOut).then(() => { if (id === this.matchId) this.audio.place(0); })
       );
     });
     await Promise.all(jobs);
@@ -579,6 +640,7 @@ export class Game {
     const values = pool.map((d) => rollFace(d.typeId));
     const sim = simulateCupThrow(pool.length, plan);
     await this.stage.tween(0.5, (e) => {
+      if (id !== this.matchId) return;
       cup.position.lerpVectors(rest, pose0.pos, e);
       cup.position.y += Math.sin(e * Math.PI) * 1.2;
       cup.quaternion.slerpQuaternions(restQ, pose0.quat, e);
@@ -606,11 +668,11 @@ export class Game {
         t1: plan.spawnT[i],
       };
     });
-    await this.playCup(pool, sim, plan, flights, cup, rest, restQ);
+    await this.playCup(pool, sim, plan, flights, cup, rest, restQ, id);
     this.check(id);
   }
 
-  playCup(pool, sim, plan, flights, cup, rest, restQ) {
+  playCup(pool, sim, plan, flights, cup, rest, restQ, id) {
     const FLY = 0.45;
     const BACK = 0.8;
     const frames = sim.frames;
@@ -627,6 +689,7 @@ export class Game {
       let whooshed = false;
       const qa = [0, 0, 0, 0];
       const off = this.stage.add((dt) => {
+        if (id !== this.matchId) { off(); resolve(); return; }
         time += dt;
         // 骰盅
         if (time < plan.tAway1) {
@@ -700,12 +763,12 @@ export class Game {
     this.stopCoins?.();
     const count = { casual: 90, novice: 160, regular: 260, king: 420 }[this.difficulty] || 160;
     // 落在钱摞上就停在摞顶（掷币那枚还在上面的话再高一枚）
-    const marker = this.toss?.coin.visible ? this.toss.coin.position : null;
+    const marker = this.toss?.coin.visible ? this.toss.coin : null;
     const stacks = (this.tavern?.stacks || []).map((st) => {
-      const top = st.position.y + st.userData.top - G_REST;
-      const onTop = marker && Math.hypot(marker.x - st.position.x, marker.z - st.position.z) < 0.5;
-      return { x: st.position.x, z: st.position.z, top: onTop ? top + G_STEP : top };
+      const scale = st.children[0]?.scale.x || 1;
+      return { x: st.position.x, z: st.position.z, top: st.position.y + st.userData.top - G_REST * scale, r: G_R * scale };
     });
+    if (marker) stacks.push({ x: marker.position.x, z: marker.position.z, top: marker.position.y + G_REST * marker.scale.x, r: G_R * marker.scale.x });
     const dice = this.dice.filter((d) => d.group.visible).map((d) => ({ x: d.group.position.x, z: d.group.position.z, top: d.group.position.y + 0.5 }));
     // 骰盅、锡酒杯、钱袋那里不撒
     const avoid = [...this.cupRest.map((p) => ({ x: p.x, z: p.z, r: 2.4 })), { x: 17.6, z: -3.9, r: 2.2 }, { x: -12.4, z: 13.2, r: 1.8 }, { x: 12.4, z: -13.4, r: 1.8 }];

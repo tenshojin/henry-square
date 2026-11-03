@@ -102,6 +102,17 @@ export class UI {
     this.thumbs = {};
     this.rerender = new Set();
     this.build();
+    this.modalOpen = false;
+    window.addEventListener('keydown', (e) => {
+      if (!this.modalOpen) return;
+      if (e.key === 'Escape') { e.preventDefault(); this.closeModal(); }
+      if (e.key === 'Tab') {
+        const controls = [...this.modal.querySelectorAll('button:not(:disabled), [tabindex="0"]')];
+        const first = controls[0], last = controls.at(-1);
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    });
     i18n.onChange(() => {
       this.rerender.forEach((fn) => fn());
     });
@@ -146,9 +157,14 @@ export class UI {
     this.tip = el('div', 'tip hidden');
     this.toolbar = el('div', 'toolbar hidden');
     this.bannerEl = el('div', 'banner');
+    this.tossEl = el('div', 'toss-screen hidden');
+    this.live = el('div', 'sr-only');
+    this.live.setAttribute('role', 'status');
+    this.live.setAttribute('aria-live', 'polite');
+    this.live.setAttribute('aria-atomic', 'true');
     this.popLayer = el('div', 'pop-layer');
     this.fader = el('div', 'fader');
-    for (const e of [this.splash, this.introCap, this.skipBtn, this.hud, this.popLayer, this.bannerEl, this.menuEl, this.fateEl, this.overEl, this.modal, this.toolbar, this.fader, this.tip]) r.appendChild(e);
+    for (const e of [this.splash, this.introCap, this.skipBtn, this.hud, this.popLayer, this.bannerEl, this.menuEl, this.fateEl, this.overEl, this.tossEl, this.modal, this.toolbar, this.fader, this.tip, this.live]) r.appendChild(e);
     this.buildToolbar();
   }
 
@@ -243,6 +259,8 @@ export class UI {
       const mk = (icon, title, fn, active = true) => {
         const b = el('button', 'tool' + (active ? '' : ' off'), ICONS[icon] || icon);
         b.title = title;
+        b.setAttribute('aria-label', title);
+        if (icon === 'music' || icon === 'sound') b.setAttribute('aria-pressed', String(active));
         b.onclick = (e) => {
           e.stopPropagation();
           this.audio.click();
@@ -254,6 +272,7 @@ export class UI {
       if (this.onMenuRequest) mk('menu', t.menu, () => this.onMenuRequest());
       mk('scroll', t.rules, () => this.showRules());
       mk('book', t.codex, () => this.showCodex());
+      if (this.hudState && !this.hud.classList.contains('hidden')) mk('≡', t.log, () => this.showLog());
       const lb = mk(`<b>${t.langBtn}</b>`, 'Language', () => i18n.toggle());
       lb.classList.add('lang');
       mk('music', t.music, () => {
@@ -283,48 +302,48 @@ export class UI {
       const t = this.t();
       const m = this.menuEl;
       m.innerHTML = '';
-      const card = el('div', 'paper menu-card');
-      this.ornate(card);
-      const head = el('div', 'menu-head');
-      head.appendChild(el('div', 'emblem', iconSVG('mn')));
-      const titles = el('div', 'menu-titles');
-      titles.appendChild(el('h1', 'title small', t.title));
-      titles.appendChild(el('div', 'subtitle', t.titleSub));
-      head.appendChild(titles);
-      head.appendChild(el('h3', 'section', t.chooseDiff));
-      const side = el('div', 'menu-side');
-      side.appendChild(this.btn(t.rules, 'small', () => this.showRules()));
-      side.appendChild(this.btn(t.codex, 'small', () => this.showCodex()));
-      head.appendChild(side);
-      card.appendChild(head);
+      const brand = el('div', 'menu-brand', `<div class="eyebrow">${t.menuKicker}</div><h1 class="title">${t.title}</h1><div class="subtitle">${t.titleSub}</div>`);
+      m.appendChild(brand);
+      const card = el('div', 'menu-card');
+      card.appendChild(el('div', 'menu-heading', `<span class="eyebrow">${t.chooseDiff}</span><span class="menu-version">${VERSION}</span>`));
       const grid = el('div', 'diff-grid');
+      grid.setAttribute('role', 'group');
+      grid.setAttribute('aria-label', t.chooseDiff);
+      const details = el('div', 'opponent-info');
+      const refreshDetails = () => {
+        const info = t.diff[sel];
+        details.innerHTML = `<div class="opponent-name">${info.who}</div><div class="opponent-desc">${info.desc}</div><div class="opponent-target">${t.targetN(targets[sel])}</div>`;
+      };
       for (const d of ['casual', 'novice', 'regular', 'king']) {
         const info = t.diff[d];
         const lv = DIFF_LEVEL[d];
         const pips = [1, 2, 3, 4].map((i) => `<i class="${i <= lv ? 'on' : ''}">◆</i>`).join('');
         const c = el('button', 'diff' + (d === sel ? ' sel' : '') + ' d-' + d);
+        c.setAttribute('aria-pressed', String(d === sel));
         c.innerHTML = `<div class="diff-icon"><svg viewBox="0 0 48 48">${EMBLEMS[DIFF_EMBLEM[d]]}</svg></div>
-          <div class="diff-text"><div class="diff-name">${info.name}</div><div class="diff-who">${info.who}</div>
-          <div class="diff-desc">${info.desc}</div>
-          <div class="diff-meta"><span class="pips">${pips}</span><span>${t.target} ${targets[d] ?? ''}</span></div></div>
-          ${sealSVG('red', 'die', 20 + lv)}`;
+          <div class="diff-text"><div class="diff-name">${info.name}</div><div class="diff-meta"><span class="pips" aria-hidden="true">${pips}</span><span>${targets[d]} ${t.score}</span></div></div>`;
         c.onclick = () => {
           if (sel === d) return;
           sel = d;
           this.audio.select(true);
-          grid.querySelectorAll('.diff').forEach((x) => x.classList.toggle('sel', x === c));
+          grid.querySelectorAll('.diff').forEach((x) => {
+            x.classList.toggle('sel', x === c);
+            x.setAttribute('aria-pressed', String(x === c));
+          });
+          refreshDetails();
           if (onSelect) onSelect(d);
         };
         grid.appendChild(c);
       }
       card.appendChild(grid);
-      const row = el('div', 'menu-actions');
+      const row = el('div', 'menu-footer');
+      refreshDetails();
+      row.appendChild(details);
       row.appendChild(this.btn(t.start, 'primary big', () => {
         this.hideMenu();
         onStart(sel);
       }));
       card.appendChild(row);
-      card.appendChild(el('div', 'menu-version', VERSION));
       m.appendChild(card);
     };
     this.menuRender = render;
@@ -345,84 +364,110 @@ export class UI {
   // offers: [{typeId, variant} | null] x6
   showFate(offers, onConfirm) {
     const choice = offers.map(() => false);
-    let first = true;
+    let active = Math.max(0, offers.findIndex(Boolean));
+    this.fateResolve = onConfirm;
     const render = () => {
       const t = this.t();
       const f = this.fateEl;
       f.innerHTML = '';
       const card = el('div', 'paper fate-card');
-      this.ornate(card);
+      card.appendChild(el('div', 'eyebrow', t.fateKicker));
       card.appendChild(el('h2', 'title small', t.fateTitle));
-      card.insertAdjacentHTML('beforeend', flourishSVG());
       card.appendChild(el('p', 'fate-sub', t.fateSub));
       if (!offers.some(Boolean)) card.appendChild(el('p', 'fate-none', t.fateNone));
       const row = el('div', 'fate-row');
+      row.setAttribute('role', 'group');
+      row.setAttribute('aria-label', t.yourDice);
       offers.forEach((o, i) => {
-        const slot = el('div', 'slot' + (o ? ' offered' : ''));
-        if (first) slot.style.animationDelay = `${0.08 + i * 0.1}s`;
-        else slot.style.animation = 'none';
-        slot.appendChild(el('div', 'slot-label', t.slot(i + 1)));
-        const img = el('div', 'slot-die', `<img src="${this.thumb(NORMAL_ID)}" alt="">`);
-        slot.appendChild(img);
-        if (o) {
-          slot.appendChild(el('div', 'slot-name', dieName(o.typeId, i18n.lang)));
-          slot.appendChild(el('div', 'slot-hint', dieHint(o.typeId, i18n.lang)));
-          const seg = el('div', 'seg');
-          const a = el('button', '', t.keepNormal);
-          const b = el('button', '', t.transform);
-          const mini = el('div', 'slot-offer', `<img src="${this.thumb(o.typeId, o.variant)}" alt="">`);
-          slot.appendChild(mini);
-          const apply = (animate) => {
-            const on = choice[i];
-            slot.classList.toggle('chosen', on);
-            a.classList.toggle('on', !on);
-            b.classList.toggle('on', on);
-            img.querySelector('img').src = on ? this.thumb(o.typeId, o.variant) : this.thumb(NORMAL_ID);
-            mini.classList.toggle('hidden', on);
-            const old = slot.querySelector('.seal');
-            if (old) old.remove();
-            if (on) {
-              slot.insertAdjacentHTML('beforeend', sealSVG('gold', 'star', 30 + i));
-              if (!animate) slot.querySelector('.seal').style.animation = 'none';
-            }
-          };
-          a.onclick = () => {
-            if (!choice[i]) return;
-            choice[i] = false;
-            this.audio.select(false);
-            apply(true);
-          };
-          b.onclick = () => {
-            if (choice[i]) return;
-            choice[i] = true;
-            this.audio.select(true);
-            apply(true);
-          };
-          seg.appendChild(a);
-          seg.appendChild(b);
-          slot.appendChild(seg);
-          apply(false);
-        } else {
-          slot.appendChild(el('div', 'slot-name dim', t.normalDie));
-        }
+        const selected = o && choice[i];
+        const typeId = selected ? o.typeId : NORMAL_ID;
+        const slot = el('button', `slot${active === i ? ' active' : ''}${selected ? ' chosen' : ''}`,
+          `<span class="slot-label">${t.slot(i + 1)}</span><span class="slot-die"><img src="${this.thumb(typeId, selected ? o.variant : 0)}" alt=""></span><span class="slot-name">${dieName(typeId, i18n.lang)}</span><span class="slot-status">${selected ? t.equipped : o ? t.swapAvailable : t.commonOnly}</span>`);
+        slot.setAttribute('aria-pressed', String(active === i));
+        slot.dataset.slot = i;
+        slot.onclick = () => { active = i; this.audio.select(false); render(); this.fateEl.querySelector(`[data-slot="${i}"]`)?.focus({ preventScroll: true }); };
         row.appendChild(slot);
       });
       card.appendChild(row);
-      const act = el('div', 'menu-actions');
+      const detail = el('div', 'fate-detail');
+      const offer = offers[active];
+      detail.appendChild(el('div', 'fate-detail-heading', `<span>${t.slot(active + 1)}</span><strong>${offer ? t.chooseDie : t.commonOnly}</strong>`));
+      const options = el('div', 'fate-options');
+      const option = (typeId, variant, special) => {
+        const selected = choice[active] === special;
+        const b = el('button', `fate-option${selected ? ' selected' : ''}`, `<img src="${this.thumb(typeId, variant)}" alt=""><span><strong>${dieName(typeId, i18n.lang)}</strong><span class="option-hint">${dieHint(typeId, i18n.lang)}</span><span class="option-state">${selected ? '✓ ' + t.equipped : t.transform}</span></span>`);
+        b.setAttribute('aria-pressed', String(selected));
+        b.dataset.option = special ? 'special' : 'normal';
+        b.onclick = () => { choice[active] = special; this.audio.select(special); render(); this.fateEl.querySelector(`[data-option="${special ? 'special' : 'normal'}"]`)?.focus({ preventScroll: true }); };
+        return b;
+      };
+      options.appendChild(option(NORMAL_ID, 0, false));
+      if (offer) options.appendChild(option(offer.typeId, offer.variant, true));
+      detail.appendChild(options);
+      card.appendChild(detail);
+      const act = el('div', 'fate-footer');
+      act.appendChild(el('p', 'fate-summary', t.fateSummary(choice.filter(Boolean).length)));
       act.appendChild(this.btn(t.confirm, 'primary big', () => {
-        this.rerender.delete(render);
-        this.fateEl.classList.remove('show');
-        setTimeout(() => this.fateEl.classList.add('hidden'), 400);
-        onConfirm(choice.slice());
+        this.closeFate(choice.slice());
       }));
       card.appendChild(act);
       f.appendChild(card);
-      first = false;
     };
+    this.fateRender = render;
     this.rerender.add(render);
     render();
     this.fateEl.classList.remove('hidden');
     requestAnimationFrame(() => this.fateEl.classList.add('show'));
+  }
+
+  closeFate(choice = null) {
+    this.rerender.delete(this.fateRender);
+    this.fateEl.classList.remove('show');
+    this.fateEl.classList.add('hidden');
+    const done = this.fateResolve;
+    this.fateResolve = null;
+    done?.(choice);
+  }
+
+  beginToss() {
+    this.tossHeads = null;
+    this.tossReady = false;
+    this.tossRender = () => {
+      const t = this.t(), heads = this.tossHeads, result = heads !== null;
+      this.tossEl.classList.toggle('has-result', result);
+      this.tossEl.innerHTML = `<div class="toss-heading" aria-hidden="${result}"><div class="eyebrow">${t.tossKicker}</div><h2>${t.tossTitle}</h2></div>`;
+      const footer = el('div', `toss-footer${result ? ' result' : ''}`);
+      if (result) {
+        footer.innerHTML = `<div class="toss-face">${heads ? t.tossHeads : t.tossCross}</div><h2 class="toss-winner">${heads ? t.firstYouShort : t.firstOppShort}</h2>`;
+        const b = this.btn(t.beginRound, 'primary big', () => this.endToss(true));
+        b.disabled = !this.tossReady;
+        footer.appendChild(b);
+      } else footer.innerHTML = `<div class="toss-rules"><span><img src="${groschenIcons().heads}" alt=""><b>${t.tossHeads}</b>${t.firstYouShort}</span><span><img src="${groschenIcons().cross}" alt=""><b>${t.tossCross}</b>${t.firstOppShort}</span></div>`;
+      this.tossEl.appendChild(footer);
+    };
+    this.rerender.add(this.tossRender);
+    this.tossRender();
+    this.tossEl.classList.remove('hidden');
+    this.root.classList.add('toss-open');
+    return new Promise((resolve) => { this.tossResolve = resolve; });
+  }
+  revealToss(heads) {
+    this.tossHeads = heads;
+    this.tossRender?.();
+    this.live.textContent = heads ? this.t().firstYouShort : this.t().firstOppShort;
+  }
+  readyToss() {
+    this.tossReady = true;
+    this.tossRender?.();
+    this.tossEl.querySelector('button')?.focus({ preventScroll: true });
+  }
+  endToss(ok = false) {
+    this.rerender.delete(this.tossRender);
+    this.tossEl.classList.add('hidden');
+    this.root.classList.remove('toss-open');
+    const done = this.tossResolve;
+    this.tossResolve = null;
+    done?.(ok);
   }
 
   // ---------- 对局 HUD ----------
@@ -432,11 +477,16 @@ export class UI {
     this.hudRender = render;
     this.rerender.add(render);
     this.hud.classList.remove('hidden');
+    this.root.classList.add('playing');
+    this.toolbarRender();
     render();
   }
   hideHud() {
     this.rerender.delete(this.hudRender);
     this.hud.classList.add('hidden');
+    this.root.classList.remove('playing');
+    this.toolbarRender();
+    clearTimeout(this.bannerTimer);
     this.bannerEl.innerHTML = '';
     this.popLayer.innerHTML = '';
   }
@@ -461,7 +511,8 @@ export class UI {
       if (!isAI) {
         const dice = el('div', 'p-dice');
         p.types.forEach((ty, i) => {
-          const d = el('div', 'p-die' + (ty !== NORMAL_ID ? ' special' : ''), `<img src="${this.thumb(ty, p.variants[i])}" alt="">`);
+          const d = el('button', 'p-die' + (ty !== NORMAL_ID ? ' special' : ''), `<img src="${this.thumb(ty, p.variants[i])}" alt="">`);
+          d.setAttribute('aria-label', dieName(ty, i18n.lang));
           this.attachTip(d, ty);
           dice.appendChild(d);
         });
@@ -484,6 +535,20 @@ export class UI {
     } else if (s.status) selLine = `<div class="sel hint">${typeof s.status === 'function' ? s.status(t) : s.status}</div>`;
     info.insertAdjacentHTML('beforeend', `<div class="ti-row"><span class="ti-who">${curName}</span><span class="ti-label">${t.turnScore}</span><b class="ti-score">${s.turnScore}</b></div>${selLine}`);
     bottom.appendChild(info);
+    if (s.mode === 'choose' && s.diceChoices) {
+      const picks = el('div', 'dice-picks');
+      picks.setAttribute('role', 'group');
+      picks.setAttribute('aria-label', t.pickHint);
+      s.diceChoices.forEach((d, i) => {
+        const b = el('button', `die-pick${d.selected ? ' selected' : ''}`, `<span class="pick-index">${i + 1}</span><b>${t.face(d.value, d.joker)}</b>`);
+        b.setAttribute('aria-label', `${t.slot(i + 1)} · ${t.faceNow(t.face(d.value, d.joker))}`);
+        b.setAttribute('aria-pressed', String(d.selected));
+        b.dataset.pick = i;
+        b.onclick = () => { s.onPickDie?.(i); this.hud.querySelector(`[data-pick="${i}"]`)?.focus({ preventScroll: true }); };
+        picks.appendChild(b);
+      });
+      bottom.appendChild(picks);
+    }
     const actions = el('div', 'actions');
     if (s.mode === 'roll') {
       actions.appendChild(this.btn(`${t.roll}<span class="key">${t.keySpace}</span>`, 'primary big', () => s.onRoll && s.onRoll()));
@@ -492,7 +557,8 @@ export class UI {
       const allSel = valid && s.selection.all;
       const b1 = this.btn(`${allSel ? t.rollAll : t.rollAgain}<span class="key">${t.keySpace}</span>`, 'primary', () => s.onKeepRoll && s.onKeepRoll());
       b1.disabled = !valid;
-      const b2 = this.btn(`${t.bank}<span class="key">${t.keyEnter}</span>`, 'gold', () => s.onBank && s.onBank());
+      const bankLabel = valid ? `${t.bank} <b>${s.turnScore + s.selection.score}</b>` : t.bank;
+      const b2 = this.btn(`${bankLabel}<span class="key">${t.keyEnter}</span>`, 'gold', () => s.onBank && s.onBank());
       b2.disabled = !valid;
       actions.appendChild(b1);
       actions.appendChild(b2);
@@ -513,9 +579,39 @@ export class UI {
 
   // icon：飘带上方显示的小图（掷币结果那一面）
   banner(text, sub = '', kind = '', dur = 1800, icon = '') {
+    this.live.textContent = [text, sub].filter(Boolean).join(' · ');
     const b = el('div', 'banner-inner ' + kind, `${ribbonSVG()}${icon ? `<img class="b-coin" src="${icon}" alt="">` : ''}<div class="b-text">${text}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}`);
+    this.showBanner(b, dur, /\btoss/.test(kind));
+  }
+
+  // A brief illuminated score, with a wax impression for a lost turn.
+  scoreMoment(kind, score, player) {
+    const t = this.t(), bust = kind === 'bust';
+    const title = bust ? t.bust : t.big;
+    const context = bust ? t.scoreBust(t.who(player)) : t.scoreRoll(t.who(player));
+    const number = score.toLocaleString(i18n.lang === 'zh' ? 'zh-CN' : 'en-US');
+    this.live.textContent = `${context} · ${title} · ${number} ${t.scoreUnit}${bust ? ' · ' + t.bustSub : ''}`;
+    const sparks = Array.from({ length: bust ? 7 : 14 }, (_, i) => {
+      const angle = i * 2.39996;
+      const x = Math.cos(angle) * (64 + (i % 4) * 18);
+      const y = bust ? 18 + i * 7 : -24 - (i % 5) * 17;
+      return `<i style="--sx:${x.toFixed(1)}px;--sy:${y}px;--sd:${i * 28}ms;--sr:${i * 37}deg"></i>`;
+    }).join('');
+    const b = el('div', `banner-inner score-moment score-${bust ? 'bust' : 'high'}`, `
+      <div class="score-aura" aria-hidden="true"></div>
+      <div class="score-dust" aria-hidden="true">${sparks}</div>
+      <div class="score-heading">${title}</div>
+      <div class="score-value"><b>${number}</b><span>${t.scoreUnit}</span></div>
+      ${flourishSVG()}
+      <div class="score-context">${context}</div>
+      ${bust ? `<div class="score-caption">${t.bustSub}</div>` : ''}`);
+    this.showBanner(b, 2200);
+  }
+
+  showBanner(b, dur, low = false) {
     this.bannerEl.innerHTML = '';
-    this.bannerEl.classList.toggle('low', /\btoss/.test(kind));
+    this.bannerEl.classList.toggle('low', low);
+    this.bannerEl.classList.toggle('score-announcement', b.classList.contains('score-moment'));
     this.bannerEl.appendChild(b);
     requestAnimationFrame(() => b.classList.add('show'));
     clearTimeout(this.bannerTimer);
@@ -539,6 +635,10 @@ export class UI {
     node.addEventListener('mouseenter', (e) => this.showTip(typeId, e.clientX, e.clientY));
     node.addEventListener('mousemove', (e) => this.moveTip(e.clientX, e.clientY));
     node.addEventListener('mouseleave', () => this.hideTip());
+    const focused = () => { const r = node.getBoundingClientRect(); this.showTip(typeId, r.left, r.bottom); };
+    node.addEventListener('focus', focused);
+    node.addEventListener('blur', () => this.hideTip());
+    node.addEventListener('click', focused);
   }
   showTip(typeId, x, y, extra = '') {
     const d = DICE_BY_ID[typeId];
@@ -561,7 +661,7 @@ export class UI {
     let py = y + 18;
     if (px + w > window.innerWidth - 8) px = x - w - 14;
     if (py + h > window.innerHeight - 8) py = y - h - 14;
-    this.tip.style.transform = `translate(${px}px, ${py}px)`;
+    this.tip.style.transform = `translate(${Math.max(8, px)}px, ${Math.max(8, py)}px)`;
   }
   hideTip() {
     this.tip.classList.add('hidden');
@@ -569,17 +669,27 @@ export class UI {
 
   // ---------- 规则 / 图鉴 ----------
   openModal(build, wide = false) {
+    if (!this.modalOpen) this.returnFocus = document.activeElement;
+    this.modalOpen = true;
+    this.onModalChange?.(true);
+    this.hideTip();
+    for (const item of [this.hud, this.menuEl, this.fateEl, this.overEl, this.toolbar, this.tossEl]) item.inert = true;
     const render = () => {
       this.modal.innerHTML = '';
       const card = el('div', 'paper modal-card' + (wide ? ' wide' : ''));
-      this.ornate(card);
+      card.setAttribute('role', 'dialog');
+      card.setAttribute('aria-modal', 'true');
+      card.setAttribute('aria-labelledby', 'modal-title');
       const body = el('div', 'modal-body');
       build(card, body);
+      const title = card.querySelector('h2');
+      if (title) title.id = 'modal-title';
       card.appendChild(body);
       const close = this.btn(this.t().close, '', () => this.closeModal());
       close.classList.add('close');
       card.appendChild(close);
       this.modal.appendChild(card);
+      requestAnimationFrame(() => close.focus({ preventScroll: true }));
     };
     if (this.modalRender) this.rerender.delete(this.modalRender);
     this.modalRender = render;
@@ -594,11 +704,21 @@ export class UI {
     };
   }
   closeModal() {
+    this.modalOpen = false;
+    this.onModalChange?.(false);
+    for (const item of [this.hud, this.menuEl, this.fateEl, this.overEl, this.toolbar, this.tossEl]) item.inert = false;
     this.rerender.delete(this.modalRender);
     this.modal.classList.remove('show');
     clearTimeout(this.modalHideTimer);
     this.modalHideTimer = setTimeout(() => this.modal.classList.add('hidden'), 300);
     this.hideTip();
+    if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
+  }
+  showLog() {
+    this.openModal((card, body) => {
+      card.appendChild(el('h2', 'title small', this.t().log));
+      for (const line of this.hudState?.log || []) body.appendChild(el('p', 'history-line', typeof line === 'function' ? line(this.t()) : line));
+    });
   }
   showRules() {
     this.openModal((card, body) => {
@@ -628,6 +748,8 @@ export class UI {
 
   // ---------- 结算（卷轴） ----------
   showGameOver(win, scores, onAgain, onMenu) {
+    clearTimeout(this.overHideTimer);
+    if (this.overRender) this.rerender.delete(this.overRender);
     const render = () => {
       const t = this.t();
       const o = this.overEl;
@@ -651,14 +773,17 @@ export class UI {
       card.appendChild(row);
       o.appendChild(card);
     };
+    this.overRender = render;
     this.rerender.add(render);
     render();
     this.overEl.classList.remove('hidden');
     requestAnimationFrame(() => this.overEl.classList.add('show'));
   }
-  hideOver(render) {
+  hideOver(render = this.overRender) {
     this.rerender.delete(render);
+    this.overRender = null;
     this.overEl.classList.remove('show');
-    setTimeout(() => this.overEl.classList.add('hidden'), 400);
+    clearTimeout(this.overHideTimer);
+    this.overHideTimer = setTimeout(() => this.overEl.classList.add('hidden'), 400);
   }
 }

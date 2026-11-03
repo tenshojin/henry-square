@@ -1,11 +1,13 @@
 {
   "name": "tavern-dice",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "description": "Tavern dice game (Farkle-style) with special dice",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node --test tools/test_ui_runtime.mjs && node tools/test_logic.mjs && node tools/test_cup.mjs",
+    "dev": "node tools/serve.mjs"
   },
   "dependencies": {
     "@fontsource/alegreya": "^5.1.0",

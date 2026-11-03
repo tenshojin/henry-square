@@ -20,4 +20,4 @@ http
     res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     fs.createReadStream(f).pipe(res);
   })
-  .listen(port, () => console.log('serving on http://localhost:' + port));
+  .listen(port, '127.0.0.1', () => console.log('serving on http://127.0.0.1:' + port));

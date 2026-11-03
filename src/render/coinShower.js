@@ -11,7 +11,7 @@ const ease = (k) => 1 - (1 - k) ** 3;
 
 // count：撒多少枚；dice / stacks：[{x, z, top}]（落在上面就停在 top 的高度）；avoid：[{x, z, r}]（骰盅、酒杯，不往那里撒）
 export function coinShower(stage, audio, { count, dice = [], stacks = [], avoid = [] }) {
-  const mesh = new THREE.InstancedMesh(groschenGeometry(40, 2), groschenMaterials(), count);
+  const mesh = new THREE.InstancedMesh(groschenGeometry(40, 2), groschenMaterials('gold'), count);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;
@@ -23,7 +23,7 @@ export function coinShower(stage, audio, { count, dice = [], stacks = [], avoid 
     if (Math.abs(x) < 8 && Math.abs(z) < 5.3) y = TABLE_Y + 0.31; // 骰盘皮面
     else if (Math.abs(x) < 8.9 && Math.abs(z) < 6.2) y = TABLE_Y + 1.1; // 骰盘木框
     for (const d of dice) if (Math.abs(x - d.x) < 0.5 + G_R * 0.4 && Math.abs(z - d.z) < 0.5 + G_R * 0.4) y = Math.max(y, d.top);
-    for (const s of stacks) if (Math.hypot(x - s.x, z - s.z) < G_R * 1.05) y = Math.max(y, s.top);
+    for (const s of stacks) if (Math.hypot(x - s.x, z - s.z) < (s.r || G_R) * 1.05) y = Math.max(y, s.top);
     return y;
   };
   // 已经躺下的币：每个格子记它最上面那枚的顶面高度

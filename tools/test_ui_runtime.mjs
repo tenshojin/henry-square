@@ -4,8 +4,9 @@ import * as THREE from 'three';
 import { allowsGameShortcut } from '../src/game/input.js';
 import { waitForMedia, playMedia } from '../src/render/media.js';
 import { Stage, GAME_CAM } from '../src/render/stage.js';
-import { COIN_STACKS, LOOSE_COINS, FIRST_PLAYER_SPOTS } from '../src/render/coinLayout.js';
+import { COIN_STACKS, LOOSE_COINS, NEUTRAL_COIN_SPOT, TOSS_SCALE } from '../src/render/coinLayout.js';
 import { G_R, COIN_METALS } from '../src/render/groschen.js';
+import { Game } from '../src/game/game.js';
 
 test('game shortcuts require an active turn and cannot leak through controls or dialogs', () => {
   const state = { visible: true, modalOpen: false, mode: 'choose' };
@@ -46,13 +47,18 @@ test('play rejection and a never-settling play promise cannot stall entry', asyn
   await assert.rejects(playMedia({ play: () => new Promise(() => {}) }, 10), /timed out/);
 });
 
-test('the large first-player marker has bare tabletop around it on both sides', () => {
-  for (const marker of FIRST_PLAYER_SPOTS) {
-    const radius = G_R * 2.6;
-    assert.ok(Math.abs(marker.z) - radius > 6.2, 'marker overlaps tray');
-    for (const item of [...COIN_STACKS, ...LOOSE_COINS]) {
-      assert.ok(Math.hypot(marker.x - item.x, marker.z - item.z) > radius + G_R * COIN_METALS[item.metal].size + .1, 'marker overlaps another coin');
-    }
+test('the neutral coin clears the tray, dice rows, cups and money piles', () => {
+  const marker = NEUTRAL_COIN_SPOT;
+  const radius = G_R * TOSS_SCALE * 1.03;
+  assert.ok(Math.abs(marker.x) - radius > 8.9, 'marker overlaps tray');
+  for (const item of [...COIN_STACKS, ...LOOSE_COINS]) {
+    assert.ok(Math.hypot(marker.x - item.x, marker.z - item.z) > radius + G_R * COIN_METALS[item.metal].size + .1, 'marker overlaps another coin');
+  }
+  for (let slot = 0; slot < 6; slot++) {
+    assert.ok(Math.hypot(marker.x + 10.6, marker.z - (4.15 - slot * 1.38)) > radius + Math.SQRT1_2 + 1.4, 'marker must have a visible gap beside waiting dice');
+  }
+  for (const [x, z] of [[11.6, 7.4], [-11.6, -7.4]]) {
+    assert.ok(Math.hypot(marker.x - x, marker.z - z) > radius + 2.4, 'marker overlaps a cup');
   }
   assert.deepEqual([...new Set(COIN_STACKS.map((s) => s.metal))].sort(), ['copper', 'gold', 'silver']);
 });
@@ -78,7 +84,7 @@ test('adaptive quality remains lowered after resize on a high-DPR display', () =
   stage.resize();
   assert.equal(stage.renderer.getPixelRatio(), 1);
 });
-test('portrait projection keeps both dice rows inside the viewport', () => {
+test('portrait projection keeps dice rows and the neutral coin inside the viewport', () => {
   for (const [w, h] of [[320, 568], [390, 844], [768, 1024], [1440, 900]]) {
     const stage = stageFixture(w, h);
     const c = stage.camera;
@@ -91,5 +97,42 @@ test('portrait projection keeps both dice rows inside the viewport', () => {
       const p = new THREE.Vector3(x, 0.5, z).project(c);
       assert.ok(Math.abs(p.x) < 1, `${w}x${h}: side row clipped at ${p.x}`);
     }
+    for (const wobble of [-.25, .25]) {
+      c.position.x = wobble;
+      c.lookAt(GAME_CAM.look);
+      c.updateMatrixWorld();
+      for (let i = 0; i < 32; i++) {
+        const angle = i * Math.PI / 16, radius = G_R * TOSS_SCALE * 1.03;
+        const p = new THREE.Vector3(NEUTRAL_COIN_SPOT.x + Math.cos(angle) * radius, -.2, NEUTRAL_COIN_SPOT.z + Math.sin(angle) * radius).project(c);
+        assert.ok(Math.abs(p.x) < .94, `${w}x${h}: neutral coin lacks viewport margin at ${p.x}`);
+      }
+    }
+  }
+});
+
+test('both players get the correct score moment at bust, 1000 and 2000, without changing scoring', async () => {
+  for (const pi of [0, 1]) for (const [values, score, kind] of [
+    [[2, 3, 4, 6, 2, 3], 0, 'bust'],
+    [[6, 6, 6], 600, null],
+    [[1, 1, 1], 1000, 'high'],
+    [[1, 1, 1, 1], 2000, 'high'],
+  ]) {
+    const moments = [], sounds = [], delays = [];
+    const dice = values.map(value => ({ value, typeId: 'normal', isJoker: false }));
+    const players = [0, 1].map(idx => ({ idx, score: 0, kept: 0, dice: idx === pi ? dice : [] }));
+    const choice = async () => ({ mask: (1 << dice.length) - 1, bank: true });
+    const game = Object.assign(Object.create(Game.prototype), {
+      players, target: 99999,
+      ui: { banner() {}, renderHud() {}, updateHud: p => p.onRoll?.(), scoreMoment: (...args) => moments.push(args) },
+      audio: { groan: () => sounds.push('groan'), sting() {}, cheer: big => sounds.push(big ? 'big-cheer' : 'cheer'), coins() {} },
+      wait: async s => delays.push(s), throwDice: async () => {}, moveToRow: async () => {},
+      humanChoose: choice, aiChoose: choice, check() {}, log() {}, popAt() {},
+    });
+    assert.equal(await game.playTurn(pi, 1), 'next');
+    assert.equal(players[pi].score, score);
+    assert.deepEqual(moments, kind ? [[kind, score, pi]] : []);
+    assert.deepEqual(sounds, kind === 'bust' ? ['groan'] : score >= 2000 ? ['big-cheer'] : score >= 1000 ? ['cheer'] : []);
+    if (kind === 'high') assert.ok(delays.includes(1.9), 'AI must leave time to read the score before banking');
+    assert.equal(game.turn, 0);
   }
 });

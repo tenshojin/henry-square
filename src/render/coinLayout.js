@@ -1,5 +1,5 @@
 // Hand-arranged groups: short, uneven stacks and separate loose coins.
-// The large first-player coin rests on bare wood, with room around its rim.
+// The toss coin rests in a neutral area on the left, away from both purses.
 export const COIN_STACKS = [
   { metal: 'gold', n: 7, seed: 11, x: -8.4, z: 9.4 },
   { metal: 'gold', n: 3, seed: 14, x: 8.6, z: -9.5 },
@@ -13,4 +13,5 @@ export const LOOSE_COINS = [
   { metal: 'gold', x: 6.2, z: -8.3, yaw: -.45 },
   { metal: 'silver', x: 10.9, z: -8.8, yaw: 1.2 },
 ];
-export const FIRST_PLAYER_SPOTS = [{ x: -3.3, z: 8.8 }, { x: 3.3, z: -8.8 }];
+export const TOSS_SCALE = 1.8;
+export const NEUTRAL_COIN_SPOT = { x: -14.2, z: -1.8 };

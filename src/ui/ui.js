@@ -438,7 +438,7 @@ export class UI {
       this.tossEl.innerHTML = `<div class="toss-heading" aria-hidden="${result}"><div class="eyebrow">${t.tossKicker}</div><h2>${t.tossTitle}</h2></div>`;
       const footer = el('div', `toss-footer${result ? ' result' : ''}`);
       if (result) {
-        footer.innerHTML = `<div class="toss-face">${heads ? t.tossHeads : t.tossCross}</div><h2 class="toss-winner">${heads ? t.firstYouShort : t.firstOppShort}</h2><p>${heads ? t.tossYouHint : t.tossOppHint}</p>`;
+        footer.innerHTML = `<div class="toss-face">${heads ? t.tossHeads : t.tossCross}</div><h2 class="toss-winner">${heads ? t.firstYouShort : t.firstOppShort}</h2>`;
         const b = this.btn(t.beginRound, 'primary big', () => this.endToss(true));
         b.disabled = !this.tossReady;
         footer.appendChild(b);
@@ -581,8 +581,37 @@ export class UI {
   banner(text, sub = '', kind = '', dur = 1800, icon = '') {
     this.live.textContent = [text, sub].filter(Boolean).join(' · ');
     const b = el('div', 'banner-inner ' + kind, `${ribbonSVG()}${icon ? `<img class="b-coin" src="${icon}" alt="">` : ''}<div class="b-text">${text}</div>${sub ? `<div class="b-sub">${sub}</div>` : ''}`);
+    this.showBanner(b, dur, /\btoss/.test(kind));
+  }
+
+  // A brief illuminated score, with a wax impression for a lost turn.
+  scoreMoment(kind, score, player) {
+    const t = this.t(), bust = kind === 'bust';
+    const title = bust ? t.bust : t.big;
+    const context = bust ? t.scoreBust(t.who(player)) : t.scoreRoll(t.who(player));
+    const number = score.toLocaleString(i18n.lang === 'zh' ? 'zh-CN' : 'en-US');
+    this.live.textContent = `${context} · ${title} · ${number} ${t.scoreUnit}${bust ? ' · ' + t.bustSub : ''}`;
+    const sparks = Array.from({ length: bust ? 7 : 14 }, (_, i) => {
+      const angle = i * 2.39996;
+      const x = Math.cos(angle) * (64 + (i % 4) * 18);
+      const y = bust ? 18 + i * 7 : -24 - (i % 5) * 17;
+      return `<i style="--sx:${x.toFixed(1)}px;--sy:${y}px;--sd:${i * 28}ms;--sr:${i * 37}deg"></i>`;
+    }).join('');
+    const b = el('div', `banner-inner score-moment score-${bust ? 'bust' : 'high'}`, `
+      <div class="score-aura" aria-hidden="true"></div>
+      <div class="score-dust" aria-hidden="true">${sparks}</div>
+      <div class="score-heading">${title}</div>
+      <div class="score-value"><b>${number}</b><span>${t.scoreUnit}</span></div>
+      ${flourishSVG()}
+      <div class="score-context">${context}</div>
+      ${bust ? `<div class="score-caption">${t.bustSub}</div>` : ''}`);
+    this.showBanner(b, 2200);
+  }
+
+  showBanner(b, dur, low = false) {
     this.bannerEl.innerHTML = '';
-    this.bannerEl.classList.toggle('low', /\btoss/.test(kind));
+    this.bannerEl.classList.toggle('low', low);
+    this.bannerEl.classList.toggle('score-announcement', b.classList.contains('score-moment'));
     this.bannerEl.appendChild(b);
     requestAnimationFrame(() => b.classList.add('show'));
     clearTimeout(this.bannerTimer);

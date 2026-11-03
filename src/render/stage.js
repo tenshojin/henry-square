@@ -134,8 +134,8 @@ export class Stage {
     this.camera.aspect = w / h;
     // 窄屏时加大视角，保证整张桌子可见
     const aspect = w / h;
-    // Preserve enough horizontal field of view for the tray and both dice rows.
-    const fit = 2 * Math.atan(Math.tan(GAME_CAM.fov * Math.PI / 360) * Math.max(1, 1.35 / aspect)) * 180 / Math.PI;
+    // Keep the neutral coin and a clear gap beside the dice rows visible on narrow screens.
+    const fit = 2 * Math.atan(Math.tan(GAME_CAM.fov * Math.PI / 360) * Math.max(1, 1.6 / aspect)) * 180 / Math.PI;
     this.fovFix = fit - GAME_CAM.fov;
     this.camera.updateProjectionMatrix();
   }

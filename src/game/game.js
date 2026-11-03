@@ -367,7 +367,7 @@ export class Game {
       kept: 0,
     }));
     this.starting = false;
-    // 掷币定先手，币最后平放在先手一侧的空桌面
+    // 掷币定先手，币最后平放在左侧中立区域
     const first = await this.tossCoin(id);
     if (first === null) return;
     // 骰子落到桌上
@@ -486,7 +486,7 @@ export class Game {
       if (!best) {
         this.audio.groan();
         this.audio.sting(false);
-        this.ui.banner(t().bust, t().bustSub, 'bust', 2200);
+        this.ui.scoreMoment('bust', 0, pi);
         this.log((tt) => tt.logBust(tt.who(pi)));
         this.turn = 0;
         this.ui.updateHud({ turnScore: 0 });
@@ -496,7 +496,8 @@ export class Game {
       }
       if (best.score >= 1000) {
         this.audio.cheer(best.score >= 2000);
-        this.ui.banner(t().big, `${best.score}`, 'big', 1700);
+        this.ui.scoreMoment('high', best.score, pi);
+        await this.wait(1.9, id);
       }
 
       const choice = pi === 0 ? await this.humanChoose(P, pool, id) : await this.aiChoose(P, O, pool, id);

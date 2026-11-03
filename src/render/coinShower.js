@@ -11,7 +11,7 @@ const ease = (k) => 1 - (1 - k) ** 3;
 
 // count：撒多少枚；dice / stacks：[{x, z, top}]（落在上面就停在 top 的高度）；avoid：[{x, z, r}]（骰盅、酒杯，不往那里撒）
 export function coinShower(stage, audio, { count, dice = [], stacks = [], avoid = [] }) {
-  const mesh = new THREE.InstancedMesh(groschenGeometry(40, 2), groschenMaterials(), count);
+  const mesh = new THREE.InstancedMesh(groschenGeometry(40, 2), groschenMaterials('gold'), count);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;

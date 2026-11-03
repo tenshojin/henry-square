@@ -7,6 +7,7 @@ import { Stage, GAME_CAM } from '../src/render/stage.js';
 import { COIN_STACKS, LOOSE_COINS, NEUTRAL_COIN_SPOT, TOSS_SCALE } from '../src/render/coinLayout.js';
 import { G_R, COIN_METALS } from '../src/render/groschen.js';
 import { Game } from '../src/game/game.js';
+import { bindHoldConfirm, BANK_HOLD_MS } from '../src/ui/holdConfirm.js';
 
 test('game shortcuts require an active turn and cannot leak through controls or dialogs', () => {
   const state = { visible: true, modalOpen: false, mode: 'choose' };
@@ -135,4 +136,100 @@ test('both players get the correct score moment at bust, 1000 and 2000, without 
     if (kind === 'high') assert.ok(delays.includes(1.9), 'AI must leave time to read the score before banking');
     assert.equal(game.turn, 0);
   }
+});
+
+function holdFixture() {
+  const button = new Media(), win = new Media(), doc = new Media();
+  const classes = new Set(), jobs = new Map();
+  let time = 0, next = 0, confirmed = 0, valid = true;
+  Object.assign(button, { disabled: false, isConnected: true, focus() {},
+    classList: { add: v => classes.add(v), remove: v => classes.delete(v) },
+    style: { setProperty() {} }, getBoundingClientRect: () => ({ left: 0, top: 0, right: 100, bottom: 50 }),
+  });
+  const hold = bindHoldConfirm(button, {
+    win, doc, canConfirm: () => valid, confirm: () => confirmed++,
+    schedule: (fn, delay) => { const id = ++next; jobs.set(id, { fn, at: time + delay }); return id; },
+    unschedule: id => jobs.delete(id),
+  });
+  const event = (type, props = {}) => Object.assign(new Event(type, { cancelable: true }), props);
+  return { button, win, doc, hold, classes,
+    emit: (target, type, props) => target.dispatchEvent(event(type, props)),
+    key: (code = 'Enter', repeat = false) => hold.startKey(event('keydown', { code, repeat })),
+    down: (props = {}) => button.dispatchEvent(event('pointerdown', { button: 0, pointerId: 1, isPrimary: true, ...props })),
+    advance(ms) { time += ms; for (const [id, job] of [...jobs]) if (job.at <= time) { jobs.delete(id); job.fn(); } },
+    get confirmed() { return confirmed; }, set valid(value) { valid = value; },
+  };
+}
+
+test('banking requires a full uninterrupted primary press; clicks and partial presses never bank', () => {
+  const f = holdFixture();
+  f.emit(f.button, 'click');
+  f.down({ button: 2 }); f.advance(BANK_HOLD_MS);
+  f.down({ isPrimary: false }); f.advance(BANK_HOLD_MS);
+  assert.equal(f.confirmed, 0);
+  f.down(); f.advance(BANK_HOLD_MS - 1);
+  assert.equal(f.confirmed, 0);
+  f.emit(f.win, 'pointerup', { pointerId: 1 });
+  f.down(); f.advance(BANK_HOLD_MS - 1);
+  assert.equal(f.confirmed, 0, 'a new press starts from zero');
+  f.advance(1); f.advance(5000); f.down();
+  f.emit(f.button, 'click');
+  assert.equal(f.confirmed, 1, 'holding or the trailing click must not double-bank');
+  f.hold.destroy();
+});
+
+test('moving away, interruption, stale UI and invalid selection cancel bank progress', () => {
+  const interruptions = [
+    f => f.emit(f.button, 'pointermove', { pointerId: 1, clientX: 101, clientY: 20 }),
+    f => f.emit(f.button, 'pointerleave'),
+    f => f.emit(f.win, 'pointercancel', { pointerId: 1 }),
+    f => f.emit(f.win, 'lostpointercapture', { pointerId: 1 }),
+    f => f.emit(f.win, 'blur'), f => f.emit(f.button, 'blur'), f => f.emit(f.win, 'pagehide'),
+    f => { f.doc.hidden = true; f.emit(f.doc, 'visibilitychange'); },
+    f => f.hold.cancel(), f => f.hold.destroy(),
+    f => { f.button.disabled = true; }, f => { f.button.isConnected = false; }, f => { f.valid = false; },
+  ];
+  for (const interrupt of interruptions) {
+    const f = holdFixture();
+    f.down(); f.advance(300); interrupt(f); f.advance(1000);
+    assert.equal(f.confirmed, 0);
+    assert.equal(f.classes.has('holding'), false);
+    f.hold.destroy();
+    assert.equal(f.win.listeners + f.doc.listeners + f.button.listeners, 0);
+  }
+});
+
+test('Enter, numpad Enter and focused Space require a full hold and ignore auto-repeat', () => {
+  for (const code of ['Enter', 'NumpadEnter', 'Space']) {
+    const f = holdFixture();
+    f.key(code); f.advance(300); f.emit(f.win, 'keyup', { code }); f.advance(1000);
+    assert.equal(f.confirmed, 0);
+    f.key(code, true); f.advance(1000);
+    assert.equal(f.confirmed, 0);
+    f.key(code); f.advance(500); f.key(code, true); f.advance(400);
+    assert.equal(f.confirmed, 1);
+    f.key(code, true); f.advance(1000);
+    assert.equal(f.confirmed, 1);
+    f.emit(f.win, 'keyup', { code });
+    f.key(code); f.advance(300); f.doc.activeElement = {}; f.emit(f.doc, 'focusin'); f.advance(1000);
+    assert.equal(f.confirmed, 1, 'moving keyboard focus must cancel the hold');
+    f.hold.destroy();
+  }
+});
+
+test('real human selection exposes die names and remembers the die selected through either input path', async () => {
+  const pool = [{ typeId: 'loaded', variant: 0, value: 1 }, { typeId: 'normal', variant: 0, value: 5 }];
+  const ui = { hudState: {}, updateHud(patch) { Object.assign(this.hudState, patch); } };
+  const game = Object.assign(Object.create(Game.prototype), { ui, audio: { select() {} }, turn: 250 });
+  const choice = game.humanChoose({}, pool, 1);
+  assert.deepEqual(ui.hudState.diceChoices.map(d => d.typeId), ['loaded', 'normal']);
+  game.onDieClick(pool[0]);
+  assert.equal(ui.hudState.inspectedDie, 0);
+  ui.hudState.onPickDie(1);
+  assert.equal(ui.hudState.inspectedDie, 1);
+  assert.equal(ui.hudState.turnScore + ui.hudState.selection.score, 400);
+  const finish = ui.hudState.onBank;
+  finish(); finish();
+  assert.deepEqual(await choice, { mask: 3, bank: true });
+  assert.equal(ui.hudState.mode, null);
 });

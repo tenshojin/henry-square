@@ -3,6 +3,7 @@ import { i18n, VERSION } from '../i18n.js';
 import { DICE_BY_ID, SPECIAL_DICE, NORMAL_ID, dieName, dieHint } from '../data/dice.js';
 import { iconSVG } from './icon.js';
 import { groschenIcons } from '../render/groschen.js';
+import { bindHoldConfirm } from './holdConfirm.js';
 
 const ICONS = {
   music: '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>',
@@ -381,8 +382,8 @@ export class UI {
       offers.forEach((o, i) => {
         const selected = o && choice[i];
         const typeId = selected ? o.typeId : NORMAL_ID;
-        const slot = el('button', `slot${active === i ? ' active' : ''}${selected ? ' chosen' : ''}`,
-          `<span class="slot-label">${t.slot(i + 1)}</span><span class="slot-die"><img src="${this.thumb(typeId, selected ? o.variant : 0)}" alt=""></span><span class="slot-name">${dieName(typeId, i18n.lang)}</span><span class="slot-status">${selected ? t.equipped : o ? t.swapAvailable : t.commonOnly}</span>`);
+        const slot = el('button', `slot${o ? ' swappable' : ''}${active === i ? ' active' : ''}${selected ? ' chosen' : ''}`,
+          `<span class="slot-label">${t.slot(i + 1)}</span>${o ? '<i class="swap-star" aria-hidden="true">✦</i>' : ''}<span class="slot-die"><img src="${this.thumb(typeId, selected ? o.variant : 0)}" alt=""></span><span class="slot-name">${dieName(typeId, i18n.lang)}</span><span class="slot-status">${selected ? '✓ ' + t.equipped : o ? t.swapAvailable : t.commonOnly}</span>`);
         slot.setAttribute('aria-pressed', String(active === i));
         slot.dataset.slot = i;
         slot.onclick = () => { active = i; this.audio.select(false); render(); this.fateEl.querySelector(`[data-slot="${i}"]`)?.focus({ preventScroll: true }); };
@@ -482,6 +483,8 @@ export class UI {
     render();
   }
   hideHud() {
+    this.bankHold?.destroy();
+    this.bankHold = null;
     this.rerender.delete(this.hudRender);
     this.hud.classList.add('hidden');
     this.root.classList.remove('playing');
@@ -491,6 +494,8 @@ export class UI {
     this.popLayer.innerHTML = '';
   }
   renderHud() {
+    this.bankHold?.destroy();
+    this.bankHold = null;
     const s = this.hudState;
     if (!s) return;
     const t = this.t();
@@ -536,14 +541,33 @@ export class UI {
     info.insertAdjacentHTML('beforeend', `<div class="ti-row"><span class="ti-who">${curName}</span><span class="ti-label">${t.turnScore}</span><b class="ti-score">${s.turnScore}</b></div>${selLine}`);
     bottom.appendChild(info);
     if (s.mode === 'choose' && s.diceChoices) {
+      const detail = el('div', 'pick-detail');
+      detail.setAttribute('role', 'status');
+      detail.setAttribute('aria-live', 'polite');
+      detail.setAttribute('aria-atomic', 'true');
+      const inspect = (index) => {
+        const d = s.diceChoices?.[index];
+        detail.innerHTML = d
+          ? `<img src="${this.thumb(d.typeId, d.variant)}" alt=""><span><small>${t.slot(index + 1)}</small><strong>${dieName(d.typeId, i18n.lang)}</strong></span>`
+          : `<span class="pick-name-hint">${t.pickNameHint}</span>`;
+      };
+      inspect(s.inspectedDie);
+      bottom.appendChild(detail);
       const picks = el('div', 'dice-picks');
       picks.setAttribute('role', 'group');
       picks.setAttribute('aria-label', t.pickHint);
       s.diceChoices.forEach((d, i) => {
         const b = el('button', `die-pick${d.selected ? ' selected' : ''}`, `<span class="pick-index">${i + 1}</span><b>${t.face(d.value, d.joker)}</b>`);
-        b.setAttribute('aria-label', `${t.slot(i + 1)} · ${t.faceNow(t.face(d.value, d.joker))}`);
+        b.setAttribute('aria-label', `${t.slot(i + 1)} · ${dieName(d.typeId, i18n.lang)} · ${t.faceNow(t.face(d.value, d.joker))}`);
         b.setAttribute('aria-pressed', String(d.selected));
         b.dataset.pick = i;
+        // A rerender under a stationary mouse must not overwrite keyboard selection.
+        b.addEventListener('pointermove', () => inspect(i));
+        b.addEventListener('focus', () => inspect(i));
+        b.addEventListener('mouseleave', () => inspect(s.inspectedDie));
+        b.addEventListener('keydown', (e) => {
+          if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.stopPropagation(); this.bankHold?.startKey(e); }
+        });
         b.onclick = () => { s.onPickDie?.(i); this.hud.querySelector(`[data-pick="${i}"]`)?.focus({ preventScroll: true }); };
         picks.appendChild(b);
       });
@@ -557,9 +581,15 @@ export class UI {
       const allSel = valid && s.selection.all;
       const b1 = this.btn(`${allSel ? t.rollAll : t.rollAgain}<span class="key">${t.keySpace}</span>`, 'primary', () => s.onKeepRoll && s.onKeepRoll());
       b1.disabled = !valid;
-      const bankLabel = valid ? `${t.bank} <b>${s.turnScore + s.selection.score}</b>` : t.bank;
-      const b2 = this.btn(`${bankLabel}<span class="key">${t.keyEnter}</span>`, 'gold', () => s.onBank && s.onBank());
+      const bankLabel = valid ? `${t.holdBank} <b>${s.turnScore + s.selection.score}</b>` : t.holdBank;
+      const b2 = el('button', 'btn gold bank-hold', `<span>${bankLabel}<small class="hold-hint">${t.holdHint}<span class="key">${t.keyEnter}</span></small></span>`);
       b2.disabled = !valid;
+      b2.setAttribute('aria-keyshortcuts', 'Enter');
+      this.bankHold = bindHoldConfirm(b2, {
+        canConfirm: () => !this.modalOpen && !this.hud.classList.contains('hidden') && this.hudState.mode === 'choose' && this.hudState.selection?.valid,
+        onHolding: (holding) => { b2.querySelector('.hold-hint').firstChild.textContent = holding ? t.holdingHint : t.holdHint; },
+        confirm: () => { this.audio.click(); s.onBank?.(); },
+      });
       actions.appendChild(b1);
       actions.appendChild(b2);
     }
@@ -669,6 +699,7 @@ export class UI {
 
   // ---------- 规则 / 图鉴 ----------
   openModal(build, wide = false) {
+    this.bankHold?.cancel();
     if (!this.modalOpen) this.returnFocus = document.activeElement;
     this.modalOpen = true;
     this.onModalChange?.(true);

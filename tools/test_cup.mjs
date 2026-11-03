@@ -43,4 +43,5 @@ for (let k = 0; k < 36; k++) {
 console.log('ok', ok, '/', total, '| avg ms', (tsum / total).toFixed(0), 'max ms', maxMs.toFixed(0), '| avg attempts', (attempts / total).toFixed(2));
 console.log('lid never placed (by dice count):', JSON.stringify(noLid), '| lid delay after last drop avg', (lidDelay.reduce((a, b) => a + b, 0) / Math.max(1, lidDelay.length)).toFixed(2), 's max', Math.max(...lidDelay).toFixed(2));
 console.log('dice still small at the end:', smallAtEnd, '| dice not small while in the cup:', bigInCup);
+if (ok !== total || smallAtEnd || bigInCup || escapes || Object.keys(noLid).length) process.exitCode = 1;
 console.log('shake: dice above rim by avg', (riseSum / total).toFixed(2), 'worst', worstRise.toFixed(2), '| throws with a die leaving the cup', escapes, '/', total, '| cup hits per throw', (cupHits / total).toFixed(1));

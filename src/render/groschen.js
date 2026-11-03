@@ -95,6 +95,12 @@ export function groschenGeometry(seg = 128, variant = 0) {
 // ---------- 材质 ----------
 let mats = null;
 let icons = null;
+const metals = new Map();
+export const COIN_METALS = {
+  gold: { color: '#efbd56', edge: '#d6a13d', roughness: 0.76, size: 1.12 },
+  silver: { color: '#e4ebf0', edge: '#c7d1d8', roughness: 0.92, size: 1 },
+  copper: { color: '#c8794b', edge: '#ad6139', roughness: 1.22, size: 0.9 },
+};
 
 function texFrom(id, srgb) {
   const el = document.getElementById('asset-coin-' + id);
@@ -163,6 +169,16 @@ export async function loadGroschen(renderer) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(1.45));');
     };
   }
+  for (const [name, spec] of Object.entries(COIN_METALS)) {
+    metals.set(name, mats.map((base, i) => {
+      const m = base.clone();
+      m.name = `coin-${name}-${i}`;
+      m.color.set(i === 0 ? spec.edge : spec.color);
+      m.roughness = Math.min(1, base.roughness * spec.roughness);
+      m.onBeforeCompile = base.onBeforeCompile;
+      return m;
+    }));
+  }
   const url = (id) => {
     const el = document.getElementById('asset-coin-' + id);
     return el ? 'data:image/webp;base64,' + el.textContent.trim() : '';
@@ -172,33 +188,38 @@ export async function loadGroschen(renderer) {
 }
 
 export const groschenIcons = () => icons || { heads: '', cross: '' };
-export const groschenMaterials = () => mats;
+export const groschenMaterials = (metal = 'silver') => metals.get(metal) || mats;
 
 // 一枚格罗申（细节高的给掷币用，低的给成堆的、撒下来的用）
-export function makeGroschen({ seg = 64, variant = 0 } = {}) {
-  const m = new THREE.Mesh(groschenGeometry(seg, variant % 4), mats);
+export function makeGroschen({ seg = 64, variant = 0, metal = 'silver', scale = COIN_METALS[metal]?.size || 1 } = {}) {
+  const m = new THREE.Mesh(groschenGeometry(seg, variant % 4), groschenMaterials(metal));
+  m.name = `${metal}-coin`;
+  m.userData.metal = metal;
+  m.scale.setScalar(scale);
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
 }
 
 // 一摞格罗申（略微错位，最上面那枚随机正反）
-export function groschenStack(n, seed = 1) {
+export function groschenStack(n, seed = 1, metal = 'silver') {
   let s = seed * 7919 + 13;
   const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
   const g = new THREE.Group();
+  const size = COIN_METALS[metal].size;
+  g.name = `${metal}-coin-stack`;
   let x = 0;
   let z = 0;
   for (let i = 0; i < n; i++) {
-    const c = makeGroschen({ seg: 48, variant: Math.floor(rnd() * 4) });
+    const c = makeGroschen({ seg: 48, variant: Math.floor(rnd() * 4), metal });
     x += (rnd() - 0.5) * 0.08;
     z += (rnd() - 0.5) * 0.08;
-    c.position.set(x, G_REST + i * G_STEP, z);
+    c.position.set(x, (G_REST + i * G_STEP) * size, z);
     c.rotation.y = rnd() * Math.PI * 2;
     c.rotation.x = (rnd() - 0.5) * 0.03 + (i === n - 1 && rnd() < 0.5 ? Math.PI : 0);
     g.add(c);
   }
-  g.userData.top = G_REST + n * G_STEP; // 摞顶的高度（再放一枚就放在这里）
+  g.userData.top = (G_REST + n * G_STEP) * size;
   return g;
 }
 
@@ -224,8 +245,9 @@ export function groschenPurse(seed = 1) {
   g.add(string);
   // 三枚散落的币，彼此不重叠
   [[1.7, -0.85], [3.05, 0], [1.75, 0.85]].forEach(([x, z], i) => {
-    const c = makeGroschen({ seg: 48, variant: i });
-    c.position.set(x + (rnd() - 0.5) * 0.08, G_REST, z + (rnd() - 0.5) * 0.08);
+    const metal = ['gold', 'silver', 'copper'][i];
+    const c = makeGroschen({ seg: 48, variant: i, metal });
+    c.position.set(x + (rnd() - 0.5) * 0.08, G_REST * COIN_METALS[metal].size, z + (rnd() - 0.5) * 0.08);
     c.rotation.y = rnd() * 6;
     if (rnd() < 0.5) c.rotation.x = Math.PI;
     g.add(c);

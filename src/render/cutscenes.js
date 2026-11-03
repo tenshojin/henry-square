@@ -6,6 +6,7 @@
 // 相邻两段共用同一张关键帧：接缝处下一段先在看不见的 <video> 里开始播，再淡入盖住上一段（和 tools/anim/finish_clips.py 拼预览片一样）。
 // 视频是 AV1（打包时以 base64 内嵌）。浏览器放不了 AV1 时没有过场动画，整局都在实时的牌桌画面上进行。
 import { assetJSON } from './assets.js';
+import { waitForMedia, playMedia } from './media.js';
 
 const LIVE_FADE = 0.4; // 视频和实时画面互相切换的淡化时长（秒）
 const IDLE_FADE = 0.3; // 从坐着的循环切出去：循环里人可能正偏着头，淡化得比普通接缝长一点
@@ -14,7 +15,6 @@ const SIDE = { elder: 1, drinker: -1, dicer: 1, barmaid: -1 };
 const LEAVE_SOUNDS = (s) => [[0.95, 'chairScrape', 0.55, 0, 0.11], [1.85, 'footstep', 0.25 * s, 0.05], [2.3, 'footstep', 0.5 * s, 0.045], [2.75, 'footstep', 0.7 * s, 0.035]];
 const ARRIVE_SOUNDS = (s) => [[0.45, 'footstep', -0.7 * s, 0.035], [0.85, 'footstep', -0.45 * s, 0.045], [1.25, 'footstep', -0.2 * s, 0.05], [1.5, 'chairScrape', 0.5, 0, 0.1], [2.85, 'chairScrape', 0.35, 0, 0.08]];
 
-const waitEvent = (el, name) => new Promise((r) => el.addEventListener(name, r, { once: true }));
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 // 视频真正画出一帧（不支持 requestVideoFrameCallback 的浏览器退回下一帧动画；最多等 0.15 秒）
 const presented = (el) =>
@@ -64,10 +64,23 @@ export class Cutscenes {
     this.events = [];
     this.onTime = null; // 开场时每帧回调（片段名, 播到第几秒），字幕和门外 / 门里的环境声跟着走
     const tick = () => {
+      if (this.destroyed) return;
       this.tick();
-      requestAnimationFrame(tick);
+      this.frameId = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    this.frameId = requestAnimationFrame(tick);
+  }
+
+  dispose() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    ++this.token;
+    cancelAnimationFrame(this.frameId);
+    this.onTime = null;
+    for (const v of this.vids) { v.pause(); v.removeAttribute('src'); v.load(); }
+    for (const url of Object.values(this.urls)) url.then((u) => URL.revokeObjectURL(u)).catch(() => {});
+    this.box.remove();
+    this.stage.paused = false;
   }
 
   // 内嵌的视频（base64）→ Blob 地址；data: 地址交给浏览器原生解码，比 atob 快得多
@@ -95,17 +108,19 @@ export class Cutscenes {
 
   // 把某一段装进 <video>，停在第一帧（地址先准备好再动 <video>，两处同时装同一段时不会装错）
   async load(el, name) {
+    const token = this.token;
     const src = await this.url(name);
+    this.check(token);
     el.pause();
     el.loop = false;
     if (el.dataset.clip !== name) {
       el.dataset.clip = name;
-      el.src = src;
+      await waitForMedia(el, 'loadeddata', () => { el.src = src; });
     } else if (el.currentTime > 0) {
-      el.currentTime = 0;
-      await waitEvent(el, 'seeked');
+      await waitForMedia(el, 'seeked', () => { el.currentTime = 0; });
     }
-    if (el.readyState < 2) await waitEvent(el, 'loadeddata');
+    if (el.readyState < 2) await waitForMedia(el, 'loadeddata');
+    this.check(token);
   }
 
   fadeEl(el, to, sec) {
@@ -115,7 +130,7 @@ export class Cutscenes {
   }
 
   check(token) {
-    if (token !== this.token) throw new Cancelled();
+    if (this.destroyed || token !== this.token) throw new Cancelled();
   }
 
   // 切到某一段：在另一个 <video> 里从头开始播，等它真正出画面后淡入、盖住当前画面，再把旧的停掉
@@ -125,7 +140,7 @@ export class Cutscenes {
     this.check(token);
     el.loop = loop;
     el.style.zIndex = ++this.z;
-    await el.play().catch(() => {});
+    await playMedia(el);
     await presented(el);
     this.check(token);
     const old = this.cur;
@@ -144,9 +159,19 @@ export class Cutscenes {
   until(left, token = this.token) {
     const el = this.cur;
     return new Promise((resolve, reject) => {
+      let lastTime = el?.currentTime;
+      let progressAt = performance.now();
+      let lastCheck = progressAt;
       const check = () => {
-        if (token !== this.token) return reject(new Cancelled());
+        if (this.destroyed || token !== this.token) return reject(new Cancelled());
         if (!el || el.ended || (el.duration && el.duration - el.currentTime <= left + 0.004)) return resolve();
+        if (el.error) return reject(new Error('Video playback failed'));
+        const now = performance.now();
+        if (document.hidden || now - lastCheck > 2000 || el.currentTime !== lastTime) {
+          lastTime = el.currentTime;
+          progressAt = now;
+        } else if (now - progressAt > 8000) return reject(new Error('Video playback stalled'));
+        lastCheck = now;
         requestAnimationFrame(check);
       };
       check();
@@ -198,7 +223,7 @@ export class Cutscenes {
       if (this.cur !== this.vids[0] || this.vids[0].dataset.clip !== 'intro_a') await this.showIntroStill();
       const el = this.cur;
       this.load(this.spare(), 'intro_b').catch(() => {});
-      await el.play().catch(() => {});
+      await playMedia(el);
       await this.until(this.xf, token);
       await this.play('intro_b', 'idle_elder', token);
       await this.cut('idle_elder', { loop: true, token });
@@ -228,7 +253,7 @@ export class Cutscenes {
   // 播的过程中又点了别人：空椅子那一下直接换成最后点的那个人
   swapTo(opp) {
     this.want = opp;
-    if (!this.swapping && this.want !== this.opp) this.swapping = this.runSwaps().finally(() => (this.swapping = null));
+    if (!this.swapping && this.want !== this.opp) this.swapping = this.runSwaps().catch((e) => this.onError?.(e)).finally(() => (this.swapping = null));
   }
 
   async runSwaps() {
@@ -284,7 +309,7 @@ export class Cutscenes {
     this.cur = el;
     this.stage.paused = true;
     this.setEvents(el.dataset.clip);
-    await el.play().catch(() => {});
+    await playMedia(el);
     await this.load(this.spare(), 'idle_' + opp);
     await this.until(this.xf, token);
     await this.cut('idle_' + opp, { loop: true, token });

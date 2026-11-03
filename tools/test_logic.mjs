@@ -15,6 +15,7 @@ for (const [vals, exp] of cases) {
   if (got !== exp) { fail++; console.log('FAIL', vals, 'got', got, 'exp', exp); }
 }
 console.log('scoring cases:', cases.length, 'fail:', fail);
+if (fail) process.exitCode = 1;
 console.log('bust [2,3,4,6,6,2]:', bestOfRoll(D([2,3,4,6,6,2])));
 console.log('best [1,5,2,2,3,4]:', bestOfRoll(D([1,5,2,2,3,4])).score);
 for (let n = 1; n <= 6; n++) { const s = rollStats(new Array(n).fill('normal')); console.log('normal', n, 'pBust', s.pBust.toFixed(3), 'gain', s.gain.toFixed(0), 'pHot', s.pHot.toFixed(3)); }

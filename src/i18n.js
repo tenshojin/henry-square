@@ -9,6 +9,18 @@ const STR = {
     skip: '跳过 ›',
     langBtn: 'EN',
     chooseDiff: '挑选你的对手',
+    menuKicker: '一席烛火 · 六枚骰子',
+    fateKicker: '入座之前 · 配好你的骰子',
+    yourDice: '你的六枚骰子',
+    chooseDie: '这一枚，交给哪一种命运？',
+    swapAvailable: '可替换',
+    equipped: '已选用',
+    commonOnly: '保留普通骰子',
+    fateSummary: (n) => `${n} 枚特殊骰子 · ${6 - n} 枚普通骰子。本局中途不可更换。`,
+    tossKicker: '金币裁定 · 谁先出手',
+    tossYouHint: '金币站在你这边。准备好，掷出今晚的第一把。',
+    tossOppHint: '让对手先试试手气，再轮到你。',
+    beginRound: '开始对局',
     start: '入座开局',
     rules: '计分规则',
     codex: '骰子图鉴',
@@ -22,7 +34,7 @@ const STR = {
       king: { name: '斯卡利茨骰子王', who: '传说中的骰子王', desc: '据说从没输过一局' },
     },
     fateTitle: '命运之骰',
-    fateSub: '每枚骰子都有一半机会被命运替换。逐一决定：换，还是不换？选定后直到本局结束都不会再变。',
+    fateSub: '每枚骰子有一半机会获得特殊替代。点选下方骰子，查看并决定是否替换。',
     fateNone: '命运今晚没有眷顾你——六枚都是普通骰子。',
     slot: (i) => `第 ${i} 枚`,
     keepNormal: '保留普通',
@@ -128,6 +140,18 @@ const STR = {
     skip: 'Skip ›',
     langBtn: '中文',
     chooseDiff: 'Choose Your Opponent',
+    menuKicker: 'CANDLELIGHT · SIX DICE · ONE CHANCE',
+    fateKicker: 'BEFORE THE FIRST THROW',
+    yourDice: 'Your six dice',
+    chooseDie: 'Which fate will you carry?',
+    swapAvailable: 'Swap available',
+    equipped: 'Equipped',
+    commonOnly: 'Keep the common die',
+    fateSummary: (n) => `${n} special · ${6 - n} common. These dice stay with you for this game.`,
+    tossKicker: 'THE GOLD SOVEREIGN DECIDES',
+    tossYouHint: 'Fortune favours you. Make the first throw count.',
+    tossOppHint: 'Let your opponent test their luck first.',
+    beginRound: 'Let Us Play',
     start: 'Take a Seat',
     rules: 'Scoring',
     codex: 'Dice Codex',
@@ -141,7 +165,7 @@ const STR = {
       king: { name: 'Dice King of Skalitz', who: 'The legend himself', desc: 'Said never to have lost a game' },
     },
     fateTitle: 'Dice of Fate',
-    fateSub: 'Each die has an even chance to be offered a special replacement. Decide one by one: swap it or keep it? Your choice holds until the game ends.',
+    fateSub: 'Each die has an even chance of a special offer. Select a die below to compare your choices.',
     fateNone: 'Fate passed you by tonight — all six are common dice.',
     slot: (i) => `Die ${i}`,
     keepNormal: 'Keep',
@@ -249,7 +273,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v3.4';
+export const VERSION = 'v4.0';
 
 export const i18n = {
   get lang() {

@@ -39,7 +39,8 @@ async function main() {
   // 过场动画（v3.4 起人物只出现在视频里）：开场页后面先显示门关着的那一帧
   const csMeta = Cutscenes.available();
   const cs = csMeta ? new Cutscenes(stage, audio, csMeta) : null;
-  const still = cs ? cs.showIntroStill() : null;
+  // Attach the rejection handler immediately, while shaders are still compiling.
+  const still = cs ? cs.showIntroStill().then(() => null, (error) => error) : null;
   mark('stage');
   ui.setLoading(0.1);
   await nextFrame();
@@ -50,6 +51,7 @@ async function main() {
   const game = new Game(stage, ui, audio);
   game.tavern = tav;
   game.cutscenes = cs;
+  if (cs) cs.onError = (error) => game.disableCutscenes(error);
   mark('tavern');
   ui.setLoading(0.3);
   await nextFrame();
@@ -94,19 +96,20 @@ async function main() {
   mark('compile');
   if (cs) {
     try {
-      await still;
+      const error = await still;
+      if (error) throw error;
     } catch (e) {
       // 视频解不出来（浏览器说支持 AV1 但实际不行）：不放过场动画，整局在实时的牌桌画面上进行
-      console.warn(e);
-      cs.box.remove();
-      game.cutscenes = null;
+      game.disableCutscenes(e);
     }
   }
   if (game.cutscenes) {
     stage.paused = true;
     // 开场要用的几段先解出来，其余的在后台慢慢解
-    await cs.prepare(['intro_b', 'idle_elder']);
-    cs.prepare(Object.keys(csMeta.clips));
+    try {
+      await cs.prepare(['intro_b', 'idle_elder']);
+      cs.prepare(Object.keys(csMeta.clips)).catch((error) => game.disableCutscenes(error));
+    } catch (error) { game.disableCutscenes(error); }
   }
   ui.setLoading(1);
   ui.setLoaded();

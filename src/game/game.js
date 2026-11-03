@@ -112,6 +112,7 @@ export class Game {
       } else if (/^[1-6]$/.test(e.key) && s.mode === 'choose') {
         e.preventDefault();
         s.onPickDie?.(Number(e.key) - 1);
+        this.ui.hud.querySelector(`[data-pick="${Number(e.key) - 1}"]`)?.focus({ preventScroll: true });
       }
     });
   }

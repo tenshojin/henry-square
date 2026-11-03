@@ -561,7 +561,8 @@ export class UI {
         b.setAttribute('aria-label', `${t.slot(i + 1)} · ${dieName(d.typeId, i18n.lang)} · ${t.faceNow(t.face(d.value, d.joker))}`);
         b.setAttribute('aria-pressed', String(d.selected));
         b.dataset.pick = i;
-        b.addEventListener('mouseenter', () => inspect(i));
+        // A rerender under a stationary mouse must not overwrite keyboard selection.
+        b.addEventListener('pointermove', () => inspect(i));
         b.addEventListener('focus', () => inspect(i));
         b.addEventListener('mouseleave', () => inspect(s.inspectedDie));
         b.addEventListener('keydown', (e) => {

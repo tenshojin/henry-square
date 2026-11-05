@@ -32,7 +32,7 @@ const readyReview = setInterval(() => {
     g.audio.resume();
     g.ui.hideOver();
     g.ui.hideHud();
-    g.stopCoins?.();
+    g.clearCoins();
     const started = g.startMatch('casual');
     g.ui.closeFate(Array(6).fill(false));
     await started;

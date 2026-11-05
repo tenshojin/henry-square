@@ -6,23 +6,52 @@ import { decide } from './ai.js';
 import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
 import { CoinToss } from '../render/coinToss.js';
-import { coinShower } from '../render/coinShower.js';
-import { G_R, G_REST } from '../render/groschen.js';
-import { simulateCupThrow, makeCupPlan, cupPose, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
+import { CoinField } from '../render/coinField.js';
+import { TableFX } from '../render/fx.js';
+import { G_R, G_REST, G_STEP, COIN_METALS } from '../render/groschen.js';
+import { PURSES, COIN_STACKS, LOOSE_COINS, CANDLE, MUG, CUPS, CUP_R, CUP_TOP_Y, PURSE, NEUTRAL_COIN_SPOT, TOSS_SCALE } from '../render/coinLayout.js';
+import { cupThrowSteps, makeCupPlan, cupPose, cupFlightCtrl, CUP_SCALE, DIE_CUP_SCALE, CUP_STRIDE } from '../render/physics.js';
 import { TABLE_Y } from '../render/world.js';
-import { easeInOut, easeOut, easeIn, linear } from '../render/stage.js';
+import { easeInOut, easeIn } from '../render/stage.js';
 import { i18n } from '../i18n.js';
 import { allowsGameShortcut } from './input.js';
+import { lineFor } from './lines.js';
+import { profile, saveProfile, unlock, firstTime } from './profile.js';
 
 // 难度对应的对手（过场动画里坐在对面的人）
 export const OPPONENT_OF = { casual: 'barmaid', novice: 'drinker', regular: 'elder', king: 'dicer' };
-const DOOR_CREAK = 0.4; // 开场推门那段视频里门开始动的时间（秒）
+// 开场片的时间点（秒）：门开始动、镜头跨过门槛、进屋后浮现标题
+const DOOR_CREAK = 0.74;
+const THRESHOLD = 6.9;
+const TITLE_AT = 7.4;
 
 export const TARGETS = { casual: 750, novice: 1500, regular: 3000, king: 8000 };
+export const FIRST_DIFFICULTY = 'novice'; // 刚进酒馆时的难度：开场动画落到这个难度的对手对面（改了要重做开场片）
 const ROW_Y = TABLE_Y + 0.5;
 const V3 = THREE.Vector3;
 const rand = (a, b) => a + Math.random() * (b - a);
-
+// 桌上实心的东西：高度都换算成世界坐标
+const worldSolid = (s) => ({ x: s.x, z: s.z, r: s.r, top: TABLE_Y + s.top });
+export const TABLE_SOLIDS = [
+  ...CUPS.map((c) => worldSolid({ ...c, r: CUP_R, top: CUP_TOP_Y })),
+  worldSolid(MUG),
+  worldSolid(CANDLE),
+  ...PURSES.map((p) => worldSolid({ x: p.x, z: p.z, ...PURSE })),
+  // 骰盘四个角的黄铜块
+  ...[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) => worldSolid({ x: sx * 8.45, z: sz * 5.75, r: 1.15, top: 1.46 })),
+];
+// 桌上原有的钱摞和散币：写进钱币的高度图
+const coinTop = (n, metal) => TABLE_Y + (G_REST + n * G_STEP) * COIN_METALS[metal].size;
+export const TABLE_COINS = [
+  ...COIN_STACKS.map((s) => ({ x: s.x, z: s.z, r: G_R * COIN_METALS[s.metal].size + 0.14, top: coinTop(s.n, s.metal) })),
+  ...LOOSE_COINS.map((s) => ({ x: s.x, z: s.z, r: G_R * COIN_METALS[s.metal].size + 0.02, top: TABLE_Y + 2 * G_REST * COIN_METALS[s.metal].size })),
+];
+export const CUP_ARC = 2.2; // 举骰盅时比直线多抬多高：离开桌边时越过盘角
+// 跳过去的横向进度：起跳时先往上，落下前已经到位，像用手拿起来放下去，不会擦着盘边过去
+export const hopAcross = (e) => {
+  const u = Math.min(1, Math.max(0, (e - 0.07) / 0.8));
+  return u * u * (3 - 2 * u);
+};
 class Cancelled extends Error {}
 
 function materialClass(typeId) {
@@ -50,10 +79,12 @@ export class Game {
     this.dice = [];
     this.players = null;
     this.selectable = null;
-    this.difficulty = 'regular';
+    this.difficulty = FIRST_DIFFICULTY;
     ui.onModalChange = (open) => { stage.interactionPaused = open; };
 
+    this.fx = new TableFX(stage);
     this.cupRest = [new V3(11.6, TABLE_Y, 7.4), new V3(-11.6, TABLE_Y, -7.4)];
+    this.field = new CoinField(stage, audio, { solids: TABLE_SOLIDS, statics: TABLE_COINS });
     this.cups = [createCup({ leather: '#5a2416', seed: 9 }), createCup({ leather: '#2e2418', seed: 19 })];
     this.cups.forEach((c, i) => {
       c.scale.setScalar(CUP_SCALE);
@@ -64,6 +95,7 @@ export class Game {
 
     stage.add((dt, t) => {
       for (const d of this.dice) d.update(dt, t);
+      this.updateTime();
     });
     this.bindInput();
   }
@@ -87,7 +119,7 @@ export class Game {
         }
       } else if (hoverDie) this.ui.hideTip();
       // 可选骰子的悬停光圈
-      if (hoverDie && hoverDie !== die && !hoverDie.selected) hoverDie.ringTarget = 0;
+      if (hoverDie && hoverDie !== die && !hoverDie.selected) hoverDie.ringTarget = hoverDie.hint || 0;
       if (die && this.selectable && this.selectable.includes(die) && !die.selected) die.ringTarget = 0.35;
       hoverDie = die;
       canvas.style.cursor = die && this.selectable && this.selectable.includes(die) ? 'pointer' : 'default';
@@ -99,7 +131,12 @@ export class Game {
       const die = hit ? hit.object.userData.die : null;
       if (die && this.onDieClick) this.onDieClick(die);
     });
+    // 对手回合：按住空格或按住桌面，时间走快一点
+    canvas.addEventListener('pointerdown', () => { this.held = true; });
+    for (const type of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(type, () => { this.held = false; });
+    window.addEventListener('keyup', (e) => { if (e.code === 'Space') this.held = false; });
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') this.held = true;
       const s = this.ui.hudState;
       if (!s || !allowsGameShortcut(e, { visible: !this.ui.hud.classList.contains('hidden'), modalOpen: this.ui.modalOpen, mode: s.mode })) return;
       if (e.code === 'Space') {
@@ -109,6 +146,9 @@ export class Game {
       } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
         e.preventDefault();
         if (s.mode === 'choose' && s.selection?.valid) this.ui.bankHold?.startKey(e);
+      } else if (e.code === 'KeyA' && s.mode === 'choose') {
+        e.preventDefault();
+        s.onPickBest?.();
       } else if (/^[1-6]$/.test(e.key) && s.mode === 'choose') {
         e.preventDefault();
         s.onPickDie?.(Number(e.key) - 1);
@@ -117,8 +157,27 @@ export class Game {
     });
   }
 
+  // 对手说句话
+  say(event, chance = 1) {
+    if (Math.random() < chance) this.ui.bark?.(lineFor(OPPONENT_OF[this.difficulty], event, i18n.lang));
+  }
+
+  award(id) {
+    if (unlock(id)) this.ui.toast?.(id);
+  }
+
+  tip(id, text) {
+    if (firstTime(id)) this.ui.coach?.(text);
+  }
+
+  updateTime() {
+    const s = this.ui.hudState;
+    const waiting = this.players && s && s.current === 1 && !s.mode && !this.ui.modalOpen && !this.ui.hud.classList.contains('hidden');
+    this.stage.timeTarget = this.held && waiting ? 2.6 : 1;
+  }
+
   // ---------- 开场动画 ----------
-  // 推门 → 走进酒馆、停在老人对面（视频），标题字幕在走进门之后浮现；右下角可跳过。浏览器放不了视频时直接到牌桌
+  // 推门 → 走进酒馆、停在第一个对手对面（视频），标题字幕在走进门之后浮现；右下角可跳过。浏览器放不了视频时直接到牌桌
   disableCutscenes(error) {
     console.warn('Cinematics unavailable; continuing at the table.', error);
     this.cutscenes?.dispose();
@@ -151,18 +210,15 @@ export class Game {
     let cap = false;
     a.setInside(0);
     const done = cs.intro((clip, t) => {
-      if (clip === 'intro_a') {
-        if (!creaked && t > DOOR_CREAK) {
-          creaked = true;
-          a.doorCreak();
-        }
-        a.setInside(THREE.MathUtils.clamp((t - DOOR_CREAK) / 2.4, 0, 1));
-      } else {
-        a.setInside(1);
-        if (!cap && t > 1.2) {
-          cap = true;
-          this.ui.showIntroCaption(true);
-        }
+      if (clip !== 'intro') return;
+      if (!creaked && t > DOOR_CREAK) {
+        creaked = true;
+        a.doorCreak();
+      }
+      a.setInside(THREE.MathUtils.clamp((t - DOOR_CREAK) / (THRESHOLD - DOOR_CREAK), 0, 1));
+      if (!cap && t > TITLE_AT) {
+        cap = true;
+        this.ui.showIntroCaption(true);
       }
     });
     const skipped = new Promise((resolve) =>
@@ -179,10 +235,10 @@ export class Game {
     // 视频盖着时实时画面暂停，stage.wait 不走，用定时器
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (await Promise.race([done, skipped])) {
-      // 落到老人对面之后字幕再停一会儿，先淡出，菜单再从下面升起来
+      // 落到第一个对手对面之后字幕再停一会儿，先淡出，菜单再从下面升起来
       this.ui.hideSkip();
       if (!cap) this.ui.showIntroCaption(true);
-      await sleep(1600);
+      await sleep(1000);
       this.ui.hideIntro();
       await sleep(1100);
     } else {
@@ -266,7 +322,7 @@ export class Game {
   async leaveTable() {
     const cs = this.cutscenes;
     if (!cs) {
-      this.stopCoins?.(true);
+      this.clearCoins(true);
       return;
     }
     if (!this.atTable) return;
@@ -277,7 +333,7 @@ export class Game {
       try { await cs.fromTable(); }
       catch (error) { this.disableCutscenes(error); }
       // Remove victory coins after the video covers the table.
-      this.stopCoins?.();
+      this.clearCoins();
     });
   }
 
@@ -319,6 +375,13 @@ export class Game {
     this.toss?.clear(); // 桌边的先手金币
   }
 
+  // 收走桌上的钱（赌注堆、钱堆、胜利撒下来的）：桌面还看得见就缩小消失，被视频盖着就直接收走
+  clearCoins(animated = false) {
+    this.field.dice = [];
+    this.field.statics = TABLE_COINS;
+    this.field.clear(animated);
+  }
+
   makeAiDice(diff) {
     const v = () => Math.floor(Math.random() * 3);
     if (diff === 'casual') return [];
@@ -345,8 +408,7 @@ export class Game {
     this.starting = true;
     const id = this.matchId;
     this.clearDice();
-    // 上一局胜利撒下的钱：桌面还看得见就缩小消失，被视频盖着就直接收走
-    this.stopCoins?.(this.atTable);
+    this.clearCoins(this.atTable);
     this.setOpponent(diff);
     this.target = TARGETS[diff];
     const entering = this.enterTable();
@@ -368,6 +430,10 @@ export class Game {
       kept: 0,
     }));
     this.starting = false;
+    this.stats = { best: 0, busts: 0, hots: 0, turns: 0, trailed: false };
+    for (const ty of this.players[0].types) if (ty !== NORMAL_ID) profile.diceUsed[ty] = 1;
+    if (Object.keys(profile.diceUsed).length >= 10) this.award('collector');
+    saveProfile();
     // 掷币定先手，币最后平放在左侧中立区域
     const first = await this.tossCoin(id);
     if (first === null) return;
@@ -396,6 +462,7 @@ export class Game {
     this.ui.showHud({
       players: this.players,
       difficulty: diff,
+      opp: OPPONENT_OF[diff],
       target: this.target,
       current: -1,
       turnScore: 0,
@@ -408,6 +475,8 @@ export class Game {
     await Promise.all(drops);
     // 骰子还在往下落时就回了菜单：不再弹“谁先手”
     if (id !== this.matchId) return;
+    const hour = new Date().getHours();
+    this.say(hour < 5 && Math.random() < 0.6 ? 'late' : 'start');
     try {
       await this.runMatch(id, first);
     } catch (e) {
@@ -432,9 +501,11 @@ export class Game {
     if (!this.toss) this.toss = new CoinToss(this.stage, this.audio);
     const heads = Math.random() < 0.5;
     const acknowledged = this.ui.beginToss();
-    const ok = await this.toss.play(heads, () => this.ui.revealToss(heads));
+    const played = this.toss.play(heads, () => this.ui.revealToss(heads));
+    // 结果一出来就能点「开始对局」：点了金币快进到桌边，不用等它慢慢放好
+    acknowledged.then((go) => go && this.toss.hurry());
+    const ok = await played;
     if (!ok || id !== this.matchId) return null;
-    this.ui.readyToss();
     if (!await acknowledged || id !== this.matchId) return null;
     return heads ? 0 : 1;
   }
@@ -461,15 +532,14 @@ export class Game {
     let pool = P.dice.slice();
     let needPress = true;
     this.ui.updateHud({ current: pi, turnScore: 0, mode: null, selection: null, status: null });
-    this.ui.banner(pi === 0 ? t().yourTurn : t().oppTurn, '', pi === 0 ? 'turn' : 'turn-opp', 1100);
-    await this.wait(1.1, id);
+    this.ui.banner(pi === 0 ? t().yourTurn : t().oppTurn, '', pi === 0 ? 'turn' : 'turn-opp', 900);
+    if (this.stats) this.stats.turns++;
+    if (pi === 1) this.tip('speed', t().tipSpeed);
+    await this.wait(0.85, id);
 
     for (;;) {
       if (pi === 0 && needPress) {
-        await new Promise((res, rej) => {
-          this.cancelWait = rej;
-          this.ui.updateHud({ mode: 'roll', selection: null, status: null, onRoll: () => res() });
-        });
+        await this.waitForRoll();
         this.cancelWait = null;
         this.check(id);
         this.ui.updateHud({ mode: null, onRoll: null });
@@ -478,16 +548,28 @@ export class Game {
         await this.wait(pi === 0 ? 0.15 : 0.45, id);
       }
 
+      if (pi === 0 && this.tavern && !this.tavern.candle.lit) this.award('darkness');
       await this.throwDice(P, pool, id);
       const rolled = pool.map((d) => ({ value: d.value, joker: d.isJoker, type: d.typeId }));
       const vals = rolled.map((r) => [r.value, r.joker]);
       this.log((tt) => tt.logRoll(tt.who(pi), vals.map(([v, j]) => tt.face(v, j)).join('\u2002')));
       this.ui.renderHud();
       const best = bestOfRoll(rolled);
+      if (pi === 0 && best) this.noteThrow(best.score);
+      this.throwEgg(rolled, pool);
+      if (best) this.revealFx(pool, best.mask);
       if (!best) {
+        if (pi === 0) {
+          profile.busts++;
+          if (this.stats) this.stats.busts++;
+          if (this.turn >= 1000) this.award('greed');
+          this.tip('bust', t().tipBust);
+        }
+        this.say(pi === 0 ? 'youBust' : 'oppBust', 0.75);
         this.audio.groan();
         this.audio.sting(false);
         this.ui.scoreMoment('bust', 0, pi);
+        this.bustFx(pool);
         this.log((tt) => tt.logBust(tt.who(pi)));
         this.turn = 0;
         this.ui.updateHud({ turnScore: 0 });
@@ -498,6 +580,8 @@ export class Game {
       if (best.score >= 1000) {
         this.audio.cheer(best.score >= 2000);
         this.ui.scoreMoment('high', best.score, pi);
+        this.fx?.motes(0, 0, best.score >= 2000 ? 70 : 38);
+        this.say(pi === 0 ? 'youBig' : 'oppBig', 0.85);
         await this.wait(1.9, id);
       }
 
@@ -517,6 +601,12 @@ export class Game {
         P.score += this.turn;
         const n = this.turn;
         this.audio.coins();
+        if (pi === 0) {
+          profile.bestTurn = Math.max(profile.bestTurn, n);
+          saveProfile();
+          if (n >= 1000) this.say('youBank', 0.6);
+        } else if (this.stats && P.score >= this.target * 0.4 && O.score <= P.score / 2) this.stats.trailed = true;
+        this.ui.updateHud({ near: [0, 1].filter((i) => this.players[i].score >= this.target * 0.8) });
         this.ui.banner(t().banked(n), '', '', 1400);
         this.log((tt) => tt.logBank(tt.who(pi), n));
         this.turn = 0;
@@ -531,6 +621,14 @@ export class Game {
         this.ui.banner(t().hot, t().hotSub, 'hot', 1600);
         this.audio.sting(true);
         this.audio.smallCheer();
+        this.hotFx(P);
+        if (pi === 0) {
+          profile.hots++;
+          if (this.stats) this.stats.hots++;
+          this.award('hotDice');
+          this.tip('hot', t().tipHot);
+        }
+        this.say(pi === 0 ? 'youHot' : 'oppHot', 0.85);
         this.log((tt) => tt.logHot(tt.who(pi)));
         pool = P.dice.slice();
         P.kept = 0;
@@ -539,13 +637,58 @@ export class Game {
     }
   }
 
+  // 等玩家按「掷骰」：想太久对手会催
+  async waitForRoll() {
+    const timer = setTimeout(() => this.say('slow'), 26000);
+    try {
+      await new Promise((res, rej) => {
+        this.cancelWait = rej;
+        this.ui.updateHud({ mode: 'roll', selection: null, status: null, onRoll: () => res() });
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 记一下这一掷的分
+  noteThrow(score) {
+    if (this.stats) this.stats.best = Math.max(this.stats.best, score);
+    if (score > profile.bestThrow) {
+      profile.bestThrow = score;
+      saveProfile();
+    }
+    if (score >= 2000) this.award('bigThrow');
+  }
+
+  // 掷出特别的点数：三个以上的 6 蜡烛发绿，1 到 6 的全顺来一段琴；魔鬼骰子的恶魔面冒红烟，天国骰子的神圣 6 落金屑
+  throwEgg(rolled, pool) {
+    const n = (v) => rolled.filter((r) => r.value === v && !r.joker).length;
+    if (this.fx) {
+      for (const d of pool) {
+        const p = d.group.position;
+        if (d.isJoker) this.fx.smoke(p.x, p.y + 0.5, p.z, 9, [0.5, 0.09, 0.06]);
+        else if (d.typeId === 'heaven' && d.value === 6) this.fx.motes(p.x, p.z, 16, 0.9);
+      }
+    }
+    if (n(6) >= 3) {
+      if (this.tavern) this.tavern.candle.devil = 1;
+      this.audio.devil?.();
+    } else if (rolled.length === 6 && [1, 2, 3, 4, 5, 6].every((v) => n(v) === 1)) this.audio.fanfare?.();
+  }
+
   humanChoose(P, pool, id) {
     let inspectedDie = null;
-    pool.forEach((d) => {
+    const t = i18n.t;
+    // 休闲和新手：能计分的骰子带一圈淡淡的光
+    const easy = this.difficulty === 'casual' || this.difficulty === 'novice';
+    const best = bestOfRoll(pool.map((d) => ({ value: d.value, joker: d.isJoker, type: d.typeId })));
+    pool.forEach((d, i) => {
       d.selected = false;
-      d.ringTarget = 0;
+      d.hint = easy && best && best.mask & (1 << i) ? 0.26 : 0;
+      d.ringTarget = d.hint;
     });
     this.selectable = pool;
+    this.tip('pick', easy ? t.tipPick : t.tipPickHard);
     const state = () => {
       const sel = pool.filter((d) => d.selected);
       const ev = sel.length ? evaluateSelection(sel.map((d) => ({ value: d.value, joker: d.isJoker }))) : null;
@@ -566,7 +709,11 @@ export class Game {
         this.selectable = null;
         this.onDieClick = null;
         this.cancelWait = null;
-        pool.forEach((d) => (d.ringTarget = 0));
+        this.ui.hideCoach?.();
+        pool.forEach((d) => {
+          d.ringTarget = 0;
+          d.hint = 0;
+        });
         this.ui.updateHud({ mode: null, selection: null, diceChoices: null, inspectedDie: null });
         res({ mask, bank });
       };
@@ -574,13 +721,23 @@ export class Game {
         diceChoices: pool.map((d) => ({ typeId: d.typeId, variant: d.variant, value: d.value, joker: d.isJoker, selected: d.selected })),
         inspectedDie,
         onPickDie: (i) => { if (this.selectable && pool[i]) this.onDieClick?.(pool[i]); },
+        onPickBest: () => {
+          if (!this.selectable || !best) return;
+          pool.forEach((d, i) => {
+            d.selected = !!(best.mask & (1 << i));
+            d.ringTarget = d.selected ? 1 : d.hint;
+          });
+          this.audio.select(true);
+          refresh();
+        },
         onKeepRoll: () => done(false), onBank: () => done(true) });
       this.onDieClick = (die) => {
         inspectedDie = pool.indexOf(die);
         die.selected = !die.selected;
-        die.ringTarget = die.selected ? 1 : 0;
+        die.ringTarget = die.selected ? 1 : die.hint || 0;
         this.audio.select(die.selected);
         refresh();
+        if (state().valid) this.tip('bank', t.tipBank);
       };
       refresh();
     });
@@ -602,7 +759,7 @@ export class Game {
     const ev = evaluateSelection(chosen.map((d) => ({ value: d.value, joker: d.isJoker })));
     const parts = ev.parts;
     this.ui.updateHud({ status: null, selection: { count: chosen.length, valid: true, score: ev.score, desc: (tt) => parts.map(tt.part).join(' + ') } });
-    await this.wait(0.9, id);
+    await this.wait(0.65, id);
     chosen.forEach((d) => (d.ringTarget = 0));
     const total = this.turn + ev.score;
     this.ui.updateHud({ selection: null, status: dec.bank ? (tt) => tt.oppBanks(total) : (tt) => tt.oppRolls });
@@ -619,11 +776,13 @@ export class Game {
       const q0 = d.group.quaternion.clone();
       const q1 = d.restQuaternion(d.value, rand(-0.08, 0.08));
       d.ringY = TABLE_Y + 0.02;
+      // 飞得越远抛得越高，隔着半张桌子也能越过盘边
+      const hop = 2.4 + p0.distanceTo(target) * 0.1;
       return this.stage.wait(k * 0.07).then(() =>
         this.stage.tween(0.5, (e) => {
           if (id !== this.matchId) return;
-          d.group.position.lerpVectors(p0, target, e);
-          d.group.position.y += Math.sin(e * Math.PI) * 2.4;
+          d.group.position.lerpVectors(p0, target, hopAcross(e));
+          d.group.position.y = p0.y + (target.y - p0.y) * e + Math.sin(e * Math.PI) * hop;
           d.group.quaternion.slerpQuaternions(q0, q1, e);
         }, easeInOut).then(() => { if (id === this.matchId) this.audio.place(0); })
       );
@@ -642,15 +801,17 @@ export class Game {
     this.ui.hideTip();
     const plan = makeCupPlan({ base: new V3(rand(0.4, 3.4) * s, 6.2, 3.0 * s), side: s, n: pool.length });
     const pose0 = cupPose(plan, 0);
-    // 点数由概率表决定，轨迹由物理决定（离线算好再回放）
+    // 点数由概率表决定，轨迹由物理决定（离线算好再回放）；模拟和举起骰盅同时进行，按时间片跑，画面不卡
     const values = pool.map((d) => rollFace(d.typeId));
-    const sim = simulateCupThrow(pool.length, plan);
+    const simulating = this.simulate(pool.length, plan);
     await this.stage.tween(0.5, (e) => {
       if (id !== this.matchId) return;
-      cup.position.lerpVectors(rest, pose0.pos, e);
-      cup.position.y += Math.sin(e * Math.PI) * 1.2;
+      // 拿起来时先离开桌面再过去，一条弧线
+      cup.position.lerpVectors(rest, pose0.pos, hopAcross(e));
+      cup.position.y = rest.y + (pose0.pos.y - rest.y) * e + Math.sin(e * Math.PI) * CUP_ARC;
       cup.quaternion.slerpQuaternions(restQ, pose0.quat, e);
     }, easeInOut);
+    const sim = await simulating;
     this.check(id);
     const flights = pool.map((d, i) => {
       d.selected = false;
@@ -668,7 +829,7 @@ export class Game {
       return {
         p0,
         p1,
-        ctrl: p0.clone().lerp(p1, 0.5).add(new V3(0, 4.5, 0)),
+        ctrl: cupFlightCtrl(p0, p1, plan.base),
         q0,
         q1: new THREE.Quaternion(A[o + 3], A[o + 4], A[o + 5], A[o + 6]),
         t1: plan.spawnT[i],
@@ -676,6 +837,18 @@ export class Game {
     });
     await this.playCup(pool, sim, plan, flights, cup, rest, restQ, id);
     this.check(id);
+  }
+
+  async simulate(n, plan) {
+    const steps = cupThrowSteps(n, plan);
+    for (;;) {
+      const t0 = performance.now();
+      do {
+        const s = steps.next();
+        if (s.done) return s.value;
+      } while (performance.now() - t0 < 10);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
   }
 
   playCup(pool, sim, plan, flights, cup, rest, restQ, id) {
@@ -693,6 +866,7 @@ export class Game {
       let time = -FLY;
       let ii = 0;
       let whooshed = false;
+      let cupDown = false;
       const qa = [0, 0, 0, 0];
       const off = this.stage.add((dt) => {
         if (id !== this.matchId) { off(); resolve(); return; }
@@ -708,6 +882,10 @@ export class Game {
           cup.position.lerpVectors(awayPose.pos, rest, e);
           cup.position.y += Math.sin(u * Math.PI) * 2;
           cup.quaternion.slerpQuaternions(awayPose.quat, restQ, e);
+          if (u >= 1 && !cupDown) {
+            cupDown = true;
+            this.audio.cupDown(THREE.MathUtils.clamp(rest.x / 16, -0.9, 0.9));
+          }
         }
         if (!whooshed && time >= plan.tShake1) {
           whooshed = true;
@@ -764,26 +942,44 @@ export class Game {
     this.ui.popScore(text, (c.x + 1) * 0.5 * window.innerWidth, (1 - c.y) * 0.5 * window.innerHeight);
   }
 
-  // 胜利时从天而降的格罗申：难度越高撒得越多（src/render/coinShower.js）
-  coinShower() {
-    this.stopCoins?.();
-    const count = { casual: 90, novice: 160, regular: 260, king: 420 }[this.difficulty] || 160;
-    // 落在钱摞上就停在摞顶（掷币那枚还在上面的话再高一枚）
-    const marker = this.toss?.coin.visible ? this.toss.coin : null;
-    const stacks = (this.tavern?.stacks || []).map((st) => {
-      const scale = st.children[0]?.scale.x || 1;
-      return { x: st.position.x, z: st.position.z, top: st.position.y + st.userData.top - G_REST * scale, r: G_R * scale };
+  // 骰子停稳：能计分的挨个亮一下，音一个比一个高，一眼就看到这一把有什么
+  revealFx(pool, mask) {
+    if (!this.field) return;
+    let k = 0;
+    pool.forEach((d, i) => {
+      if (!(mask & (1 << i))) return;
+      const n = k++;
+      this.stage.wait(n * 0.07).then(() => {
+        d.flash = 0.95;
+        this.audio.chime(n);
+      });
     });
-    if (marker) stacks.push({ x: marker.position.x, z: marker.position.z, top: marker.position.y + G_REST * marker.scale.x, r: G_R * marker.scale.x });
-    const dice = this.dice.filter((d) => d.group.visible).map((d) => ({ x: d.group.position.x, z: d.group.position.z, top: d.group.position.y + 0.5 }));
-    // 骰盅、锡酒杯、钱袋那里不撒
-    const avoid = [...this.cupRest.map((p) => ({ x: p.x, z: p.z, r: 2.4 })), { x: 17.6, z: -3.9, r: 2.2 }, { x: -12.4, z: 13.2, r: 1.8 }, { x: 12.4, z: -13.4, r: 1.8 }];
-    const sh = coinShower(this.stage, this.audio, { count, dice, stacks, avoid });
-    const stop = (animated) => {
-      sh.stop(animated);
-      if (this.stopCoins === stop) this.stopCoins = null;
-    };
-    this.stopCoins = stop;
+  }
+
+  // 爆骰：掷出来的骰子冒一缕烟，蜡烛也抖一下
+  bustFx(pool) {
+    if (!this.field) return;
+    for (const d of pool) this.fx.smoke(d.group.position.x, d.group.position.y + 0.5, d.group.position.z, 5);
+    if (this.tavern) this.tavern.candle.gust = 1;
+  }
+
+  // 全骰得分：火星子从每颗骰子上飘起来，蜡烛的火苗蹿一下
+  hotFx(P) {
+    if (!this.field) return;
+    this.audio.whumpf();
+    for (const d of P.dice) this.fx.embers(d.group.position.x, d.group.position.y, d.group.position.z, 12, 0.6);
+    if (this.tavern) this.tavern.candle.gust = -1;
+  }
+
+  // 胜利时从天而降的格罗申：难度越高撒得越多
+  coinShower() {
+    const count = { casual: 90, novice: 160, regular: 260, king: 420 }[this.difficulty] || 160;
+    // 桌边那枚先手金币也算钱摞；骰子是实心的，币碰到被推开
+    const parked = this.toss?.coin.visible ? [{ x: NEUTRAL_COIN_SPOT.x, z: NEUTRAL_COIN_SPOT.z, r: G_R * TOSS_SCALE + 0.03, top: TABLE_Y + 2 * G_REST * TOSS_SCALE }] : [];
+    this.field.statics = [...TABLE_COINS, ...parked];
+    this.field.restamp();
+    this.field.dice = this.dice.filter((d) => d.group.visible).map((d) => ({ x: d.group.position.x, z: d.group.position.z, top: d.group.position.y + 0.9 }));
+    this.field.shower(count);
   }
 
   // ---------- 结算 ----------
@@ -795,9 +991,14 @@ export class Game {
       this.coinShower();
     } else this.audio.loseCrowd();
     this.audio.sting(humanWon);
+    this.say(humanWon ? 'lose' : 'win');
     this.ui.banner(humanWon ? t.win : t.lose, '', humanWon ? 'big' : 'bust', 2200);
+    this.recordResult(humanWon);
     await this.wait(2.6, id);
     const scores = this.players.map((p) => p.score);
+    const m = this.stats;
+    const summary = [(tt) => tt.sumTurns(m.turns), (tt) => tt.sumBest(m.best), (tt) => tt.sumBusts(m.busts)];
+    if (m.hots) summary.push((tt) => tt.sumHots(m.hots));
     this.ui.showGameOver(
       humanWon,
       scores,
@@ -812,7 +1013,27 @@ export class Game {
         this.clearDice();
         this.players = null;
         this.openMenu();
-      }
+      },
+      summary
     );
+  }
+
+  recordResult(humanWon) {
+    const d = this.difficulty;
+    if (humanWon) {
+      profile.wins[d]++;
+      profile.streak++;
+      profile.bestStreak = Math.max(profile.bestStreak, profile.streak);
+      this.award('firstWin');
+      if (d === 'novice') this.award('beatNovice');
+      if (d === 'regular') this.award('beatRegular');
+      if (d === 'king') this.award('beatKing');
+      if (this.stats?.trailed) this.award('comeback');
+      if (profile.streak >= 3) this.award('streak3');
+    } else {
+      profile.losses[d]++;
+      profile.streak = 0;
+    }
+    saveProfile();
   }
 }

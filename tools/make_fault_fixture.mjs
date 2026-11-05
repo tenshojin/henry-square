@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(root, '亨利酒馆.html'), 'utf8');
-const pattern = /(<script type="text\/plain" id="asset-cs-intro_a">)[^<]*(<\/script>)/;
+const pattern = /(<script type="text\/plain" id="asset-cs-intro">)[^<]*(<\/script>)/;
 if (!pattern.test(html)) throw new Error('Opening clip not found');
 fs.mkdirSync(path.join(root, '.qa'), { recursive: true });
 fs.writeFileSync(path.join(root, '.qa', 'decoder-failure.html'), html.replace(pattern, '$1bm90LWEtdmlkZW8=$2'));

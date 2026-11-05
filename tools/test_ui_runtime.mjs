@@ -19,7 +19,11 @@ test('game shortcuts require an active turn and cannot leak through controls or 
     assert.equal(allowsGameShortcut({ [field]: true }, state), false);
   }
   assert.equal(allowsGameShortcut({ target: { closest: () => ({}) } }, state), false);
-  assert.equal(allowsGameShortcut({ key: '3', target: { closest: (s) => s === '[data-pick]' ? {} : null } }, state), true);
+  const pick = { closest: (s) => s === '[data-pick]' ? {} : null };
+  assert.equal(allowsGameShortcut({ key: '3', target: pick }, state), true);
+  // 点数按钮上按空格是“留下并再掷”，不是再点一下按钮把骰子取消
+  assert.equal(allowsGameShortcut({ key: ' ', code: 'Space', target: pick }, state), true);
+  assert.equal(allowsGameShortcut({ key: 'a', code: 'KeyA', target: pick }, state), true);
 });
 
 class Media extends EventTarget {
@@ -39,6 +43,20 @@ test('decoder errors, stalled loads and synchronous exceptions settle and clean 
   await assert.rejects(waitForMedia(el, 'loadeddata', null, 10), /timed out/);
   assert.equal(el.listeners, 0);
   await assert.rejects(waitForMedia(el, 'seeked', () => { throw new Error('bad seek'); }, 20), /bad seek/);
+  assert.equal(el.listeners, 0);
+});
+
+test('the wait for a video does not run out while the page is in a background tab', async () => {
+  const doc = new EventTarget();
+  doc.hidden = true;
+  const el = new Media();
+  let settled = false;
+  const wait = waitForMedia(el, 'loadeddata', null, 10, doc).finally(() => { settled = true; });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(settled, false, 'hidden page must keep waiting');
+  doc.hidden = false;
+  doc.dispatchEvent(new Event('visibilitychange'));
+  await assert.rejects(wait, /timed out/);
   assert.equal(el.listeners, 0);
 });
 

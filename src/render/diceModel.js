@@ -13,7 +13,7 @@ function getGeometry(geo = {}) {
   if (geoCache.has(key)) return geoCache.get(key);
   const g = new RoundedBoxGeometry(1, 1, 1, 4, r);
   if (distort > 0) {
-    // 按位置的平滑扰动（共享顶点位移一致，保持封闭）
+    // 按位置的平滑扰动（共享顶点位移一致，保持封闭）；扰动完再整体缩回边长 1 以内，不然放在桌上底面会陷进去
     const pos = g.attributes.position;
     const v = new THREE.Vector3();
     for (let i = 0; i < pos.count; i++) {
@@ -24,6 +24,9 @@ function getGeometry(geo = {}) {
       const dz = Math.sin(v.x * 2.1 + 0.4) * Math.cos(v.y * 2.9 + 2.2) * k;
       pos.setXYZ(i, v.x + dx, v.y + dy, v.z + dz);
     }
+    g.computeBoundingBox();
+    const b = g.boundingBox;
+    g.scale(...['x', 'y', 'z'].map((k) => 0.5 / Math.max(-b.min[k], b.max[k])));
     pos.needsUpdate = true;
   }
   geoCache.set(key, g);
@@ -35,8 +38,8 @@ const cornerMats = {
   silver: new THREE.MeshStandardMaterial({ color: '#d8dce2', metalness: 1, roughness: 0.25 }),
   iron: new THREE.MeshStandardMaterial({ color: '#3a3a3c', metalness: 0.9, roughness: 0.5 }),
 };
-const cornerGeo = new THREE.SphereGeometry(0.1, 16, 12);
-const rivetGeo = new THREE.SphereGeometry(0.055, 12, 8);
+const cornerGeo = new THREE.SphereGeometry(0.09, 16, 12);
+const rivetGeo = new THREE.SphereGeometry(0.05, 12, 8);
 
 function addCorners(mesh, kind) {
   if (!kind) return;
@@ -47,7 +50,7 @@ function addCorners(mesh, kind) {
       for (const axis of [0, 1, 2]) {
         const m = new THREE.Mesh(rivetGeo, mat);
         const p = [sx * 0.36, sy * 0.36, sz * 0.36];
-        p[axis] = [sx, sy, sz][axis] * 0.5;
+        p[axis] = [sx, sy, sz][axis] * 0.465;
         m.position.set(...p);
         m.scale.setScalar(1);
         m.castShadow = true;
@@ -55,7 +58,7 @@ function addCorners(mesh, kind) {
       }
     } else {
       const m = new THREE.Mesh(cornerGeo, mat);
-      m.position.set(sx * 0.43, sy * 0.43, sz * 0.43);
+      m.position.set(sx * 0.405, sy * 0.405, sz * 0.405);
       m.castShadow = true;
       mesh.add(m);
     }
@@ -82,6 +85,7 @@ function getRingTexture() {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const _inv = new THREE.Quaternion();
 
 export class Die3D {
   constructor(typeId, variant = 0) {
@@ -140,11 +144,17 @@ export class Die3D {
     const m = this.ring.material;
     m.opacity += (target - m.opacity) * Math.min(1, dt * 10);
     if (target > 0) m.opacity = target * (0.8 + 0.2 * Math.sin(t * 5));
+    // 亮一下：停稳以后能计分的骰子挨个闪一圈
+    if (this.flash > 0) {
+      this.flash = Math.max(0, this.flash - dt * 3.2);
+      m.opacity = Math.max(m.opacity, this.flash);
+    }
     this.ring.visible = m.opacity > 0.01;
     this.ring.position.set(this.group.position.x, this.ringY ?? 0.02, this.group.position.z);
     const sel = this.selected ? 1 : 0;
     this.lift += (sel * 0.4 - this.lift) * Math.min(1, dt * 12);
-    this.mesh.position.y = this.lift;
+    // 抬起要朝世界的上方：外层带着物理算出来的朝向，直接改自己的 y，骰子会往旁边滑，甚至陷进盘面
+    this.mesh.position.copy(UP).applyQuaternion(_inv.copy(this.group.quaternion).invert()).multiplyScalar(this.lift);
   }
 }
 

@@ -1,6 +1,7 @@
 // 过场动画（v3.4）：人物只出现在视频里——本地 AI 按设定图生成（tools/anim），实时渲染只剩牌桌对局。
-//  - 开场：intro_a（推门）+ intro_b（走进酒馆，停在老人对面）。开场页后面是 intro_a 的第一帧（门关着）。
-//  - 选对手：坐在对面的人播 idle_X（首尾接上的循环）；换人 = leave_X（起身离开，最后一帧是空椅子）+ arrive_Y（走过来坐下）。
+//  - 开场：intro（一镜到底：门打开、走进酒馆，停在第一个对手对面；Seedance 2.0 生成，tools/anim/finish_intro.py 处理）。开场页后面是它的第一帧（门关着）。
+//  - 选对手：坐在对面的人播 idle_X（首尾接上的循环），隔一会儿插一段 act_X（摸胡子之类的小动作，首尾也是同一张关键帧）；
+//    换人 = leave_X（起身离开，最后一帧是空椅子）+ arrive_Y（走过来坐下）。
 //  - 开局：tilt_down_X（低头看向牌桌）。它的最后一帧就是实时渲染的牌桌（用同一机位的截图做的关键帧），播完换回实时画面；
 //    回菜单反过来：实时画面停到同一机位，淡入 tilt_up_X 的第一帧，再抬头看向对面的人。
 // 相邻两段共用同一张关键帧：接缝处下一段先在看不见的 <video> 里开始播，再淡入盖住上一段（和 tools/anim/finish_clips.py 拼预览片一样）。
@@ -30,10 +31,13 @@ export class Cutscenes {
   static available() {
     const meta = assetJSON('cutscenes-meta');
     if (!meta) return null;
-    return document.createElement('video').canPlayType(meta.codec) ? meta : null;
+    const v = document.createElement('video');
+    if (v.canPlayType(meta.codec)) return meta;
+    // 放不了 AV1（大多数 iPhone）：在网站上时改放同目录的 H.264 小文件；双击打开的本地文件没有这些，只能不放过场动画
+    return location.protocol.startsWith('http') && v.canPlayType('video/mp4; codecs="avc1.4D401F"') ? { ...meta, remote: 'assets/cutscenes/h264/' } : null;
   }
 
-  constructor(stage, audio, meta) {
+  constructor(stage, audio, meta, firstOpp) {
     this.stage = stage;
     this.audio = audio;
     this.meta = meta;
@@ -56,7 +60,7 @@ export class Cutscenes {
     this.z = 1;
     this.cur = null; // 正在显示的 <video>（null = 实时画面）
     this.urls = {};
-    this.opp = 'elder'; // 现在坐在对面的人（开场的最后一段落在老人对面）
+    this.opp = firstOpp; // 现在坐在对面的人（开场的最后一段落在他对面）
     this.want = this.opp;
     this.swapping = null; // 正在播换人短片（Promise）
     this.lifting = null; // 正在播从牌桌抬头的那段（Promise）
@@ -75,6 +79,7 @@ export class Cutscenes {
     if (this.destroyed) return;
     this.destroyed = true;
     ++this.token;
+    clearTimeout(this.actTimer);
     cancelAnimationFrame(this.frameId);
     this.onTime = null;
     for (const v of this.vids) { v.pause(); v.removeAttribute('src'); v.load(); }
@@ -85,6 +90,7 @@ export class Cutscenes {
 
   // 内嵌的视频（base64）→ Blob 地址；data: 地址交给浏览器原生解码，比 atob 快得多
   url(name) {
+    if (this.meta.remote) return Promise.resolve(this.meta.remote + name + '.mp4');
     if (!this.urls[name]) {
       const el = document.getElementById('asset-cs-' + name);
       if (!el) return Promise.reject(new Error('missing cutscene ' + name));
@@ -205,29 +211,28 @@ export class Cutscenes {
   }
 
   // ---------- 开场 ----------
-  // 开场页后面先显示推门那段的第一帧（门关着）；实时画面这时不用渲染
+  // 开场页后面先显示开场片的第一帧（门关着）；实时画面这时不用渲染
   async showIntroStill() {
     const el = this.vids[0];
-    await this.load(el, 'intro_a');
+    await this.load(el, 'intro');
     el.style.zIndex = ++this.z;
     this.fadeEl(el, 1, 0);
     this.cur = el;
     this.stage.paused = true;
   }
 
-  // 播开场：推门 → 走进酒馆落到老人对面 → 老人坐着的循环。被跳过时返回 false
+  // 播开场：门打开 → 走进酒馆落到第一个对手对面 → 他坐着的循环。被跳过时返回 false
   async intro(onTime) {
     const token = this.token;
     this.onTime = onTime;
     try {
-      if (this.cur !== this.vids[0] || this.vids[0].dataset.clip !== 'intro_a') await this.showIntroStill();
+      if (this.cur !== this.vids[0] || this.vids[0].dataset.clip !== 'intro') await this.showIntroStill();
       const el = this.cur;
-      this.load(this.spare(), 'intro_b').catch(() => {});
+      this.load(this.spare(), 'idle_' + this.opp).catch(() => {});
       await playMedia(el);
       await this.until(this.xf, token);
-      await this.play('intro_b', 'idle_elder', token);
-      await this.cut('idle_elder', { loop: true, token });
-      this.opp = this.want = 'elder';
+      await this.cut('idle_' + this.opp, { loop: true, token });
+      this.scheduleAct();
       return true;
     } catch (e) {
       if (e instanceof Cancelled) return false;
@@ -237,8 +242,44 @@ export class Cutscenes {
     }
   }
 
+  // ---------- 坐着的小动作 ----------
+  // 对手坐在那里等你选的时候，隔一阵做个小动作，人不至于像个循环的画
+  scheduleAct() {
+    clearTimeout(this.actTimer);
+    if (!this.meta.clips['act_' + this.opp]) return;
+    this.actTimer = setTimeout(() => this.playAct(), 6500 + Math.random() * 7000);
+  }
+
+  stopAct() {
+    clearTimeout(this.actTimer);
+    if (this.acting) {
+      this.acting = false;
+      ++this.token;
+    }
+  }
+
+  async playAct() {
+    const opp = this.opp;
+    const idle = 'idle_' + opp;
+    if (this.swapping || this.lifting || !this.cur || !this.cur.loop || this.cur.dataset.clip !== idle || document.hidden) return this.scheduleAct();
+    const token = this.token;
+    this.acting = true;
+    try {
+      // 循环的首尾和小动作的首尾是同一张关键帧：等循环转回到那一帧再接，淡化里不会有重影
+      await this.load(this.spare(), 'act_' + opp);
+      await this.until(this.xf + 0.03, token);
+      await this.play('act_' + opp, idle, token);
+      await this.cut(idle, { loop: true, token });
+      this.acting = false;
+      this.scheduleAct();
+    } catch (e) {
+      if (!(e instanceof Cancelled)) this.onError?.(e);
+    }
+  }
+
   // 跳过开场：直接到某人坐着的循环（调用方先把画面淡出到黑）
   async jumpTo(opp) {
+    this.stopAct();
     ++this.token;
     this.onTime = null;
     this.events = [];
@@ -246,6 +287,7 @@ export class Cutscenes {
     await this.cut('idle_' + opp, { fade: 0, loop: true });
     for (const v of this.vids) if (v !== this.cur) this.fadeEl(v, 0, 0);
     this.opp = this.want = opp;
+    this.scheduleAct();
   }
 
   // ---------- 选对手 ----------
@@ -253,6 +295,7 @@ export class Cutscenes {
   // 播的过程中又点了别人：空椅子那一下直接换成最后点的那个人
   swapTo(opp) {
     this.want = opp;
+    if (this.want !== this.opp) this.stopAct();
     if (!this.swapping && this.want !== this.opp) this.swapping = this.runSwaps().catch((e) => this.onError?.(e)).finally(() => (this.swapping = null));
   }
 
@@ -267,6 +310,7 @@ export class Cutscenes {
         await this.play('arrive_' + y, 'idle_' + y, token);
         if (this.want !== y) continue;
         await this.cut('idle_' + y, { loop: true, token });
+        this.scheduleAct();
       }
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;
@@ -279,6 +323,7 @@ export class Cutscenes {
   async toTable(beforeLive) {
     await this.lifting;
     while (this.swapping) await this.swapping;
+    this.stopAct();
     const token = this.token;
     await this.cut('tilt_down_' + this.opp, { token, fade: IDLE_FADE });
     await this.until(0, token);
@@ -313,5 +358,6 @@ export class Cutscenes {
     await this.load(this.spare(), 'idle_' + opp);
     await this.until(this.xf, token);
     await this.cut('idle_' + opp, { loop: true, token });
+    this.scheduleAct();
   }
 }

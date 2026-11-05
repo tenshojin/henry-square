@@ -7,6 +7,26 @@
  "xf": 6,
  "codec": "video/mp4; codecs=\"av01.0.08M.10\"",
  "clips": {
+  "intro": {
+   "frames": 587,
+   "dur": 12.229
+  },
+  "act_barmaid": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "act_dicer": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "act_drinker": {
+   "frames": 161,
+   "dur": 5.031
+  },
+  "act_elder": {
+   "frames": 161,
+   "dur": 5.031
+  },
   "arrive_barmaid": {
    "frames": 161,
    "dur": 5.031
@@ -24,28 +44,20 @@
    "dur": 5.031
   },
   "idle_barmaid": {
-   "frames": 123,
-   "dur": 3.844
+   "frames": 155,
+   "dur": 4.844
   },
   "idle_dicer": {
-   "frames": 123,
-   "dur": 3.844
+   "frames": 155,
+   "dur": 4.844
   },
   "idle_drinker": {
-   "frames": 123,
-   "dur": 3.844
+   "frames": 155,
+   "dur": 4.844
   },
   "idle_elder": {
-   "frames": 123,
-   "dur": 3.844
-  },
-  "intro_a": {
-   "frames": 97,
-   "dur": 3.031
-  },
-  "intro_b": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 155,
+   "dur": 4.844
   },
   "leave_barmaid": {
    "frames": 129,

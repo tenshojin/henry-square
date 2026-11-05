@@ -4,6 +4,7 @@ import { DICE_BY_ID, SPECIAL_DICE, NORMAL_ID, dieName, dieHint } from '../data/d
 import { iconSVG } from './icon.js';
 import { groschenIcons } from '../render/groschen.js';
 import { bindHoldConfirm } from './holdConfirm.js';
+import { profile, saveProfile, ACHIEVEMENTS } from '../game/profile.js';
 
 const ICONS = {
   music: '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>',
@@ -11,6 +12,10 @@ const ICONS = {
   menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
   scroll: '<svg viewBox="0 0 24 24"><path d="M6 3h11a3 3 0 0 1 0 6h-1v9a3 3 0 0 1-3 3H6a3 3 0 0 1 0-6h1V6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 8h4M10 12h4" stroke="currentColor" stroke-width="2"/></svg>',
   book: '<svg viewBox="0 0 24 24"><path d="M4 4h6a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-6a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h7z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.1" fill="currentColor"/><circle cx="12" cy="12" r="2.1" fill="currentColor"/><circle cx="19" cy="12" r="2.1" fill="currentColor"/></svg>',
+  full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  log: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8h6M9 12h6M9 16h4" stroke="currentColor" stroke-width="2"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a4 4 0 0 0 3.2 3.9M17 6h3v1a4 4 0 0 1-3.2 3.9M12 14v4M8 20h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
 // 单色纹样（48×48），用于难度图标与火漆印
@@ -165,7 +170,10 @@ export class UI {
     this.live.setAttribute('aria-atomic', 'true');
     this.popLayer = el('div', 'pop-layer');
     this.fader = el('div', 'fader');
-    for (const e of [this.splash, this.introCap, this.skipBtn, this.hud, this.popLayer, this.bannerEl, this.menuEl, this.fateEl, this.overEl, this.tossEl, this.modal, this.toolbar, this.fader, this.tip, this.live]) r.appendChild(e);
+    this.barkEl = el('div', 'bark');
+    this.coachEl = el('button', 'coach');
+    this.toastEl = el('div', 'toasts');
+    for (const e of [this.splash, this.introCap, this.skipBtn, this.hud, this.popLayer, this.bannerEl, this.barkEl, this.coachEl, this.menuEl, this.fateEl, this.overEl, this.tossEl, this.modal, this.toolbar, this.toastEl, this.fader, this.tip, this.live]) r.appendChild(e);
     this.buildToolbar();
   }
 
@@ -270,20 +278,33 @@ export class UI {
         tb.appendChild(b);
         return b;
       };
-      if (this.onMenuRequest) mk('menu', t.menu, () => this.onMenuRequest());
+      // 对局时工具栏收成一个小按钮，牌桌上干干净净；鼠标移上去或点一下才展开
+      mk('more', t.more, () => tb.classList.toggle('open')).classList.add('more');
+      if (this.onMenuRequest) mk('menu', t.menu, () => (this.hudState && !this.hud.classList.contains('hidden') && this.overEl.classList.contains('hidden') ? this.confirmLeave() : this.onMenuRequest()));
       mk('scroll', t.rules, () => this.showRules());
       mk('book', t.codex, () => this.showCodex());
-      if (this.hudState && !this.hud.classList.contains('hidden')) mk('≡', t.log, () => this.showLog());
+      if (this.hudState && !this.hud.classList.contains('hidden')) mk('log', t.log, () => this.showLog());
+      else mk('trophy', t.records, () => this.showRecords());
       const lb = mk(`<b>${t.langBtn}</b>`, 'Language', () => i18n.toggle());
       lb.classList.add('lang');
       mk('music', t.music, () => {
         this.audio.setMusic(!this.audio.musicOn);
+        profile.music = this.audio.musicOn;
+        saveProfile();
         render();
       }, this.audio.musicOn);
       mk('sound', t.sound, () => {
         this.audio.setSound(!this.audio.soundOn);
+        profile.sound = this.audio.soundOn;
+        saveProfile();
         render();
       }, this.audio.soundOn);
+      if (document.fullscreenEnabled) {
+        mk('full', t.fullscreen, () => {
+          if (document.fullscreenElement) document.exitFullscreen();
+          else document.documentElement.requestFullscreen().catch(() => {});
+        });
+      }
     };
     this.toolbarRender = render;
     this.rerender.add(render);
@@ -297,7 +318,7 @@ export class UI {
 
   // ---------- 菜单（卷轴） ----------
   // 菜单是贴在画面下方的一条：上面露出对面座位，点哪个对手，那个人就走过来坐下
-  showMenu(onStart, current = 'regular', targets = {}, onSelect = null) {
+  showMenu(onStart, current = 'novice', targets = {}, onSelect = null) {
     let sel = current;
     const render = () => {
       const t = this.t();
@@ -319,7 +340,7 @@ export class UI {
         const info = t.diff[d];
         const lv = DIFF_LEVEL[d];
         const pips = [1, 2, 3, 4].map((i) => `<i class="${i <= lv ? 'on' : ''}">◆</i>`).join('');
-        const c = el('button', 'diff' + (d === sel ? ' sel' : '') + ' d-' + d);
+        const c = el('button', 'diff' + (d === sel ? ' sel' : '') + (profile.wins[d] ? ' beaten' : '') + ' d-' + d);
         c.setAttribute('aria-pressed', String(d === sel));
         c.innerHTML = `<div class="diff-icon"><svg viewBox="0 0 48 48">${EMBLEMS[DIFF_EMBLEM[d]]}</svg></div>
           <div class="diff-text"><div class="diff-name">${info.name}</div><div class="diff-meta"><span class="pips" aria-hidden="true">${pips}</span><span>${targets[d]} ${t.score}</span></div></div>`;
@@ -367,6 +388,7 @@ export class UI {
     const choice = offers.map(() => false);
     let active = Math.max(0, offers.findIndex(Boolean));
     this.fateResolve = onConfirm;
+    this.root.classList.add('fate-open');
     const render = () => {
       const t = this.t();
       const f = this.fateEl;
@@ -396,7 +418,7 @@ export class UI {
       const options = el('div', 'fate-options');
       const option = (typeId, variant, special) => {
         const selected = choice[active] === special;
-        const b = el('button', `fate-option${selected ? ' selected' : ''}`, `<img src="${this.thumb(typeId, variant)}" alt=""><span><strong>${dieName(typeId, i18n.lang)}</strong><span class="option-hint">${dieHint(typeId, i18n.lang)}</span><span class="option-state">${selected ? '✓ ' + t.equipped : t.transform}</span></span>`);
+        const b = el('button', `fate-option${selected ? ' selected' : ''}`, `<img src="${this.thumb(typeId, variant)}" alt=""><span><strong>${dieName(typeId, i18n.lang)}</strong><span class="option-hint">${dieHint(typeId, i18n.lang)}</span><span class="option-state">${selected ? '✓ ' + t.equipped : special ? t.transform : t.keepNormal}</span></span>`);
         b.setAttribute('aria-pressed', String(selected));
         b.dataset.option = special ? 'special' : 'normal';
         b.onclick = () => { choice[active] = special; this.audio.select(special); render(); this.fateEl.querySelector(`[data-option="${special ? 'special' : 'normal'}"]`)?.focus({ preventScroll: true }); };
@@ -422,6 +444,7 @@ export class UI {
   }
 
   closeFate(choice = null) {
+    this.root.classList.remove('fate-open');
     this.rerender.delete(this.fateRender);
     this.fateEl.classList.remove('show');
     this.fateEl.classList.add('hidden');
@@ -432,7 +455,6 @@ export class UI {
 
   beginToss() {
     this.tossHeads = null;
-    this.tossReady = false;
     this.tossRender = () => {
       const t = this.t(), heads = this.tossHeads, result = heads !== null;
       this.tossEl.classList.toggle('has-result', result);
@@ -440,9 +462,7 @@ export class UI {
       const footer = el('div', `toss-footer${result ? ' result' : ''}`);
       if (result) {
         footer.innerHTML = `<div class="toss-face">${heads ? t.tossHeads : t.tossCross}</div><h2 class="toss-winner">${heads ? t.firstYouShort : t.firstOppShort}</h2>`;
-        const b = this.btn(t.beginRound, 'primary big', () => this.endToss(true));
-        b.disabled = !this.tossReady;
-        footer.appendChild(b);
+        footer.appendChild(this.btn(t.beginRound, 'primary big', () => this.endToss(true)));
       } else footer.innerHTML = `<div class="toss-rules"><span><img src="${groschenIcons().heads}" alt=""><b>${t.tossHeads}</b>${t.firstYouShort}</span><span><img src="${groschenIcons().cross}" alt=""><b>${t.tossCross}</b>${t.firstOppShort}</span></div>`;
       this.tossEl.appendChild(footer);
     };
@@ -452,15 +472,13 @@ export class UI {
     this.root.classList.add('toss-open');
     return new Promise((resolve) => { this.tossResolve = resolve; });
   }
+  // 结果一出来就能点「开始对局」（金币会快进到桌边）；这一下淡入，换语言重画时不重播
   revealToss(heads) {
     this.tossHeads = heads;
     this.tossRender?.();
-    this.live.textContent = heads ? this.t().firstYouShort : this.t().firstOppShort;
-  }
-  readyToss() {
-    this.tossReady = true;
-    this.tossRender?.();
+    this.tossEl.querySelector('.toss-footer')?.classList.add('fresh');
     this.tossEl.querySelector('button')?.focus({ preventScroll: true });
+    this.live.textContent = heads ? this.t().firstYouShort : this.t().firstOppShort;
   }
   endToss(ok = false) {
     this.rerender.delete(this.tossRender);
@@ -474,6 +492,8 @@ export class UI {
   // ---------- 对局 HUD ----------
   showHud(state) {
     this.hudState = state;
+    this.shownScore = [0, 0];
+    this.lastTurnScore = 0;
     const render = () => this.renderHud();
     this.hudRender = render;
     this.rerender.add(render);
@@ -488,8 +508,12 @@ export class UI {
     this.rerender.delete(this.hudRender);
     this.hud.classList.add('hidden');
     this.root.classList.remove('playing');
+    this.toolbar.classList.remove('open');
     this.toolbarRender();
     clearTimeout(this.bannerTimer);
+    clearTimeout(this.barkTimer);
+    this.barkEl.classList.remove('show');
+    this.hideCoach();
     this.bannerEl.innerHTML = '';
     this.popLayer.innerHTML = '';
   }
@@ -503,16 +527,17 @@ export class UI {
     h.innerHTML = '';
     const panel = (p, idx) => {
       const isAI = idx === 1;
-      const pe = el('div', `panel vellum ${isAI ? 'right' : 'left'}${s.current === idx ? ' active' : ''}`);
-      pe.insertAdjacentHTML('beforeend', isAI ? sealSVG('green', DIFF_EMBLEM[s.difficulty], 41) : sealSVG('red', 'H', 40));
+      const pe = el('div', `panel vellum ${isAI ? 'right' : 'left'}${s.current === idx ? ' active' : ''}${s.near?.includes(idx) ? ' near' : ''}`);
+      if (isAI) pe.insertAdjacentHTML('beforeend', `<i class="p-portrait" style="background-image:var(--tex-portrait_${s.opp})"></i>`);
+      else pe.insertAdjacentHTML('beforeend', sealSVG('red', 'H', 40));
       if (s.current === idx) pe.insertAdjacentHTML('beforeend', '<i class="p-mark"></i>');
       // 掷币定先手的提醒：先手一方的牌子上一枚小格罗申（玩家先手是头像那面，对手先手是十字那面）
       if (s.first === idx) pe.insertAdjacentHTML('beforeend', `<div class="p-first" title="${t.tossLog(idx === 0)}"><img src="${groschenIcons()[idx === 0 ? 'heads' : 'cross']}" alt=""><span>${t.firstBadge}</span></div>`);
       const name = isAI ? `${t.opponent} · ${t.diff[s.difficulty].name}` : t.you;
       const sub = isAI ? t.diff[s.difficulty].who : t.targetN(s.target);
       pe.insertAdjacentHTML('beforeend', `<div class="p-head"><span class="p-name">${name}</span><span class="p-sub">${sub}</span></div>
-        <div class="p-score"><b>${p.score}</b><span>/ ${s.target}</span></div>
-        <div class="p-bar"><i style="width:${Math.min(100, (p.score / s.target) * 100)}%"></i></div>`);
+        <div class="p-score"><b data-score="${idx}">${this.shownScore[idx]}</b><span>/ ${s.target}</span></div>
+        <div class="p-bar"><i data-bar="${idx}" style="width:${Math.min(100, (this.shownScore[idx] / s.target) * 100)}%"></i></div>`);
       if (!isAI) {
         const dice = el('div', 'p-dice');
         p.types.forEach((ty, i) => {
@@ -534,11 +559,15 @@ export class UI {
     let selLine = '';
     if (s.selection) {
       const desc = typeof s.selection.desc === 'function' ? s.selection.desc(t) : s.selection.desc || '';
-      if (s.selection.valid) selLine = `<div class="sel ok">${t.selected} <b>+${s.selection.score}</b> <em>${desc}</em></div>`;
+      if (s.selection.valid) {
+        selLine = `<div class="sel ok">${t.selected} <b>+${s.selection.score}</b> <em>${desc}</em></div>`;
+      }
       else if (s.selection.count > 0) selLine = `<div class="sel bad">${t.invalid}</div>`;
       else selLine = `<div class="sel hint">${t.pickHint}</div>`;
     } else if (s.status) selLine = `<div class="sel hint">${typeof s.status === 'function' ? s.status(t) : s.status}</div>`;
-    info.insertAdjacentHTML('beforeend', `<div class="ti-row"><span class="ti-who">${curName}</span><span class="ti-label">${t.turnScore}</span><b class="ti-score">${s.turnScore}</b></div>${selLine}`);
+    const bump = s.turnScore > this.lastTurnScore ? ' bump' : '';
+    this.lastTurnScore = s.turnScore;
+    info.insertAdjacentHTML('beforeend', `<div class="ti-row"><span class="ti-who">${curName}</span><span class="ti-label">${t.turnScore}</span><b class="ti-score${bump}">${s.turnScore}</b></div>${selLine}`);
     bottom.appendChild(info);
     if (s.mode === 'choose' && s.diceChoices) {
       const detail = el('div', 'pick-detail');
@@ -553,6 +582,8 @@ export class UI {
       };
       inspect(s.inspectedDie);
       bottom.appendChild(detail);
+      const pickRow = el('div', 'pick-row');
+      bottom.appendChild(pickRow);
       const picks = el('div', 'dice-picks');
       picks.setAttribute('role', 'group');
       picks.setAttribute('aria-label', t.pickHint);
@@ -571,7 +602,11 @@ export class UI {
         b.onclick = () => { s.onPickDie?.(i); this.hud.querySelector(`[data-pick="${i}"]`)?.focus({ preventScroll: true }); };
         picks.appendChild(b);
       });
-      bottom.appendChild(picks);
+      pickRow.appendChild(picks);
+      const best = el('button', 'pick-best', t.pickBest);
+      best.title = t.pickBestTip;
+      best.onclick = () => s.onPickBest?.();
+      pickRow.appendChild(best);
     }
     const actions = el('div', 'actions');
     if (s.mode === 'roll') {
@@ -601,6 +636,30 @@ export class UI {
       log.appendChild(el('div', 'log-line' + (i === arr.length - 1 ? ' last' : ''), typeof line === 'function' ? line(t) : line));
     });
     h.appendChild(log);
+    this.rollScores();
+  }
+
+  // 总分滚动到新数字（每次重画都接着滚）
+  rollScores() {
+    if (this.scoreRaf) return;
+    const step = () => {
+      this.scoreRaf = null;
+      const s = this.hudState;
+      if (!s?.players) return;
+      let busy = false;
+      s.players.forEach((p, i) => {
+        const gap = p.score - this.shownScore[i];
+        if (!gap) return;
+        this.shownScore[i] += Math.sign(gap) * Math.min(Math.abs(gap), Math.max(10, Math.ceil(Math.abs(gap) * 0.1 / 10) * 10));
+        const b = this.hud.querySelector(`[data-score="${i}"]`);
+        const bar = this.hud.querySelector(`[data-bar="${i}"]`);
+        if (b) b.textContent = this.shownScore[i];
+        if (bar) bar.style.width = `${Math.min(100, (this.shownScore[i] / s.target) * 100)}%`;
+        if (this.shownScore[i] !== p.score) busy = true;
+      });
+      if (busy) this.scoreRaf = requestAnimationFrame(step);
+    };
+    this.scoreRaf = requestAnimationFrame(step);
   }
   updateHud(patch) {
     Object.assign(this.hudState, patch);
@@ -649,6 +708,44 @@ export class UI {
       b.classList.remove('show');
       b.classList.add('out');
     }, dur);
+  }
+
+  // 对手说的话：一张小纸条贴在他的牌子旁边，过几秒自己消失
+  bark(text, ms = 3600) {
+    if (!text) return;
+    this.barkEl.innerHTML = `<span>${text}</span>`;
+    this.barkEl.classList.remove('show');
+    requestAnimationFrame(() => this.barkEl.classList.add('show'));
+    this.live.textContent = text;
+    clearTimeout(this.barkTimer);
+    this.barkTimer = setTimeout(() => this.barkEl.classList.remove('show'), ms);
+  }
+
+  // 新手提示：点一下或过一会儿消失
+  coach(text, ms = 9000) {
+    this.coachEl.innerHTML = `<i>✦</i><span>${text}</span>`;
+    this.coachEl.classList.add('show');
+    this.coachEl.onclick = () => this.hideCoach();
+    clearTimeout(this.coachTimer);
+    this.coachTimer = setTimeout(() => this.hideCoach(), ms);
+  }
+  hideCoach() {
+    clearTimeout(this.coachTimer);
+    this.coachEl.classList.remove('show');
+  }
+
+  // 解锁成就：左上角落下一枚火漆
+  toast(id) {
+    const t = this.t();
+    const a = ACHIEVEMENTS.find((x) => x.id === id);
+    const info = t.ach[id];
+    if (!a || !info) return;
+    const n = el('div', 'toast', `${sealSVG('gold', a.emblem, 7)}<div><small>${t.achUnlocked}</small><b>${info[0]}</b></div>`);
+    this.toastEl.appendChild(n);
+    this.audio.sting(true);
+    this.live.textContent = `${t.achUnlocked} ${info[0]}`;
+    setTimeout(() => n.classList.add('out'), 4200);
+    setTimeout(() => n.remove(), 4800);
   }
 
   // 在屏幕坐标处飘出得分
@@ -745,6 +842,44 @@ export class UI {
     this.hideTip();
     if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
   }
+  // 对局中点了回菜单：问一句，手滑不至于丢掉一整局
+  confirmLeave() {
+    this.openModal((card, body) => {
+      const t = this.t();
+      card.appendChild(el('h2', 'title small', t.leaveTitle));
+      body.appendChild(el('p', 'leave-text', t.leaveText));
+      const row = el('div', 'menu-actions');
+      row.appendChild(this.btn(t.leaveYes, 'primary', () => {
+        this.closeModal();
+        this.onMenuRequest?.();
+      }));
+      body.appendChild(row);
+    });
+  }
+  showRecords() {
+    this.openModal((card, body) => {
+      const t = this.t();
+      card.appendChild(el('h2', 'title small', t.records));
+      card.insertAdjacentHTML('beforeend', flourishSVG());
+      const tbl = el('table', 'score-table');
+      tbl.innerHTML = ['casual', 'novice', 'regular', 'king'].map((d) => `<tr><td>${t.diff[d].name}</td><td>${t.recWL(profile.wins[d], profile.losses[d])}</td></tr>`).join('')
+        + `<tr><td>${t.recBestThrow}</td><td>${profile.bestThrow}</td></tr><tr><td>${t.recBestTurn}</td><td>${profile.bestTurn}</td></tr><tr><td>${t.recStreak}</td><td>${profile.bestStreak}</td></tr>`;
+      // 战绩在左、成就在右：一屏看全，不用滚动
+      const cols = el('div', 'records-cols');
+      const side = el('div');
+      cols.appendChild(tbl);
+      cols.appendChild(side);
+      body.appendChild(cols);
+      side.appendChild(el('h3', 'rec-head', t.achTitle(Object.keys(profile.ach).length, ACHIEVEMENTS.length)));
+      const grid = el('div', 'ach-grid');
+      for (const a of ACHIEVEMENTS) {
+        const got = profile.ach[a.id];
+        const [name, desc] = t.ach[a.id];
+        grid.appendChild(el('div', 'ach' + (got ? ' got' : ''), `${sealSVG(got ? 'gold' : 'green', a.emblem, 11)}<div><b>${got ? name : t.achHidden}</b><span>${desc}</span></div>`));
+      }
+      side.appendChild(grid);
+    }, true);
+  }
   showLog() {
     this.openModal((card, body) => {
       card.appendChild(el('h2', 'title small', this.t().log));
@@ -778,7 +913,7 @@ export class UI {
   }
 
   // ---------- 结算（卷轴） ----------
-  showGameOver(win, scores, onAgain, onMenu) {
+  showGameOver(win, scores, onAgain, onMenu, summary = []) {
     clearTimeout(this.overHideTimer);
     if (this.overRender) this.rerender.delete(this.overRender);
     const render = () => {
@@ -792,6 +927,7 @@ export class UI {
       card.insertAdjacentHTML('beforeend', flourishSVG());
       card.appendChild(el('p', 'tagline', win ? t.winSub : t.loseSub));
       card.appendChild(el('div', 'final', `<div><span>${t.you}</span><b>${scores[0]}</b></div><div class="vs">:</div><div><span>${t.opponent}</span><b>${scores[1]}</b></div>`));
+      if (summary.length) card.appendChild(el('div', 'over-sum', summary.map((f) => `<span>${f(t)}</span>`).join('')));
       const row = el('div', 'menu-actions');
       row.appendChild(this.btn(t.menu, '', () => {
         this.hideOver(render);
@@ -808,7 +944,11 @@ export class UI {
     this.rerender.add(render);
     render();
     this.overEl.classList.remove('hidden');
-    requestAnimationFrame(() => this.overEl.classList.add('show'));
+    requestAnimationFrame(() => {
+      this.overEl.classList.add('show');
+      // 键盘玩到底：回车或空格直接再来一局
+      this.overEl.querySelector('.btn.primary')?.focus({ preventScroll: true });
+    });
   }
   hideOver(render = this.overRender) {
     this.rerender.delete(render);

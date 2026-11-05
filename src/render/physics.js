@@ -5,8 +5,7 @@ import * as THREE from 'three';
 import { VALUE_NORMALS } from './diceFaces.js';
 
 export const TRAY = { minX: -8.0, maxX: 8.0, minZ: -5.3, maxZ: 5.3 };
-const DT = 1 / 120;
-const MAX_STEPS = 120 * 9;
+const FLOOR_Y = 0.03; // 皮面在 0.01：物理的地板再高一点点，骰子砸下去的那一下角也陷不进去
 
 function topFace(q) {
   let best = 1;
@@ -57,6 +56,7 @@ function buildWorld({ wallTop = 28 } = {}) {
   const floor = new CANNON.Body({ mass: 0, material: floorMat });
   floor.addShape(new CANNON.Plane());
   floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+  floor.position.y = FLOOR_Y;
   floor.userData = { kind: 'floor' };
   world.addBody(floor);
 
@@ -64,146 +64,12 @@ function buildWorld({ wallTop = 28 } = {}) {
   return { world, diceMat, wallMat };
 }
 
-/**
- * 模拟一次投掷
- * @param {number} n 骰子数
- * @param {THREE.Vector3} spawn 出口中心
- * @param {THREE.Vector3} dir 抛出方向（水平分量为主）
- * @returns {{frames: Float32Array[], tops: number[], impacts: {f:number, i:number, v:number, kind:string}[]}}
- */
-export function simulateThrow(n, spawn, dir, rnd = Math.random) {
-  let best = null;
-  for (let attempt = 0; attempt < 14; attempt++) {
-    const r = runOnce(n, spawn, dir, rnd, attempt);
-    if (r.ok) return r;
-    if (!best || r.badness < best.badness) best = r;
-  }
-  return best;
-}
-
-function runOnce(n, spawn, dir, rnd, attempt) {
-  const { world, diceMat } = buildWorld();
-  const bodies = [];
-  const d = dir.clone().setY(0).normalize();
-  const side = new THREE.Vector3(-d.z, 0, d.x);
-  for (let i = 0; i < n; i++) {
-    const body = new CANNON.Body({ mass: 1, material: diceMat, linearDamping: 0.08, angularDamping: 0.08 });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)));
-    body.sleepSpeedLimit = 0.22;
-    body.sleepTimeLimit = 0.22;
-    const col = (i % 3) - 1;
-    const row = Math.floor(i / 3);
-    const off = side.clone().multiplyScalar(col * 1.12 + (rnd() - 0.5) * 0.15).add(d.clone().multiplyScalar(-row * 1.1));
-    body.position.set(spawn.x + off.x, spawn.y + row * 0.4 + rnd() * 0.3, spawn.z + off.z);
-    body.quaternion.setFromEuler(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28);
-    const speed = 7.5 + rnd() * 4 + attempt * 0.2;
-    const sideKick = (rnd() - 0.5) * 6;
-    body.velocity.set(d.x * speed + side.x * sideKick, -3 - rnd() * 4, d.z * speed + side.z * sideKick);
-    body.angularVelocity.set((rnd() - 0.5) * 36, (rnd() - 0.5) * 36, (rnd() - 0.5) * 36);
-    body.userData = { kind: 'die', index: i };
-    world.addBody(body);
-    bodies.push(body);
-  }
-
-  const frames = [];
-  const impacts = [];
-  const lastImpact = new Array(n).fill(-1);
-  let frameIdx = 0;
-  bodies.forEach((body, i) => {
-    body.addEventListener('collide', (e) => {
-      const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
-      if (v < 1.0) return;
-      if (frameIdx - lastImpact[i] < 3) return;
-      lastImpact[i] = frameIdx;
-      impacts.push({ f: frameIdx, i, v, kind: e.body.userData?.kind || 'floor' });
-    });
-  });
-
-  const record = () => {
-    const arr = new Float32Array(n * 7);
-    bodies.forEach((b, i) => {
-      arr[i * 7] = b.position.x;
-      arr[i * 7 + 1] = b.position.y;
-      arr[i * 7 + 2] = b.position.z;
-      arr[i * 7 + 3] = b.quaternion.x;
-      arr[i * 7 + 4] = b.quaternion.y;
-      arr[i * 7 + 5] = b.quaternion.z;
-      arr[i * 7 + 6] = b.quaternion.w;
-    });
-    frames.push(arr);
-  };
-  record();
-  let calm = 0;
-  for (let step = 0; step < MAX_STEPS; step++) {
-    world.step(DT);
-    if (step % 2 === 1) {
-      frameIdx++;
-      record();
-      const allStill = bodies.every((b) => b.sleepState === CANNON.Body.SLEEPING || (b.velocity.length() < 0.05 && b.angularVelocity.length() < 0.05));
-      if (allStill && step > 60) calm++;
-      else calm = 0;
-      if (calm > 8) break;
-    }
-  }
-
-  // 校验：都平躺、都在盘内
-  let badness = 0;
-  const tops = [];
-  const q = new THREE.Quaternion();
-  bodies.forEach((b) => {
-    q.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
-    const t = topFace(q);
-    tops.push(t.value);
-    if (t.flat < 0.985) badness += 1 + (1 - t.flat);
-    if (b.position.y > 0.62) badness += 1;
-    if (b.position.x < TRAY.minX || b.position.x > TRAY.maxX || b.position.z < TRAY.minZ || b.position.z > TRAY.maxZ) badness += 5;
-  });
-  if (badness > 0) {
-    // 为最坏情况准备：在末尾补几帧把骰子摆平
-    const last = frames[frames.length - 1];
-    const fixed = new Float32Array(last);
-    bodies.forEach((b, i) => {
-      q.set(last[i * 7 + 3], last[i * 7 + 4], last[i * 7 + 5], last[i * 7 + 6]);
-      const t = topFace(q);
-      const up = VALUE_NORMALS[t.value].clone().applyQuaternion(q);
-      const fix = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 1, 0));
-      q.premultiply(fix);
-      fixed[i * 7] = THREE.MathUtils.clamp(last[i * 7], TRAY.minX + 0.6, TRAY.maxX - 0.6);
-      fixed[i * 7 + 1] = 0.5;
-      fixed[i * 7 + 2] = THREE.MathUtils.clamp(last[i * 7 + 2], TRAY.minZ + 0.6, TRAY.maxZ - 0.6);
-      fixed[i * 7 + 3] = q.x;
-      fixed[i * 7 + 4] = q.y;
-      fixed[i * 7 + 5] = q.z;
-      fixed[i * 7 + 6] = q.w;
-    });
-    for (let k = 1; k <= 12; k++) {
-      const t = k / 12;
-      const f = new Float32Array(last.length);
-      for (let i = 0; i < n; i++) {
-        const qa = new THREE.Quaternion(last[i * 7 + 3], last[i * 7 + 4], last[i * 7 + 5], last[i * 7 + 6]);
-        const qb = new THREE.Quaternion(fixed[i * 7 + 3], fixed[i * 7 + 4], fixed[i * 7 + 5], fixed[i * 7 + 6]);
-        qa.slerp(qb, t);
-        for (let j = 0; j < 3; j++) f[i * 7 + j] = last[i * 7 + j] + (fixed[i * 7 + j] - last[i * 7 + j]) * t;
-        f[i * 7 + 3] = qa.x;
-        f[i * 7 + 4] = qa.y;
-        f[i * 7 + 5] = qa.z;
-        f[i * 7 + 6] = qa.w;
-      }
-      frames.push(f);
-    }
-    tops.length = 0;
-    for (let i = 0; i < n; i++) {
-      q.set(fixed[i * 7 + 3], fixed[i * 7 + 4], fixed[i * 7 + 5], fixed[i * 7 + 6]);
-      tops.push(topFace(q).value);
-    }
-  }
-  return { ok: badness === 0, badness, frames, tops, impacts };
-}
-
 // ================= 骰盅投掷：骰子落进骰盅 → 在盅里翻滚 → 倒进骰盘 =================
 // 骰盅是运动学刚体（底 + 一圈墙），它的动作由 cupPose(plan, t) 给出；回放时用同一个函数，画面与物理完全一致。
 export const CUP_SCALE = 1.2;
-export const CUP_IN_R = 1.5; // 内壁半径（略小于模型，避免骰子穿模）
+export const CUP_IN_R = 1.4; // 内壁半径：模型内壁约 1.47，留一圈余量，骰子撞得再狠角也露不到盅外
+const DT_FAST = 480; // 摇盅和刚倒出来时每秒走多少步：骰子和盅壁都快，步子大了就互相陷进去
+const DT_SLOW = 240; // 落稳以后
 const CUP_FLOOR = 0.55; // 内底高度
 export const CUP_TOP = 4.0;
 const CUP_WALL = 0.3;
@@ -213,6 +79,20 @@ export const DIE_CUP_SCALE = 0.68;
 const GROW_T = 0.14;
 // 骰盅回放每帧每颗骰子 8 个数：位置 xyz、四元数 xyzw、缩放
 export const CUP_STRIDE = 8;
+
+// 骰子飞进骰盅的路线（二次贝塞尔的控制点）：骰子可能就在举起来的骰盅底下，直接飞会穿过盅身，
+// 所以先朝外、朝上绕出去，再从盅沿上方落进盅口；离骰盅越近绕得越开。离得远的骰子就是一条普通的抛物线。
+// base 是骰盅底的位置，p1 是盅口上方
+export function cupFlightCtrl(p0, p1, base, out = new THREE.Vector3()) {
+  const dx = p0.x - base.x;
+  const dz = p0.z - base.z + 0.5; // 盅口朝镜头偏，那边的盅沿低，同样远的话往那边绕
+  const d = Math.hypot(dx, dz);
+  const ux = d > 0.05 ? dx / d : 0;
+  const uz = d > 0.05 ? dz / d : 1;
+  const near = 1 - Math.min(1, Math.max(0, (d - 1.5) / 2.5));
+  const reach = Math.max(5.5 + near * 2.5, Math.hypot(p0.x - p1.x, p0.z - p1.z) * 0.5);
+  return out.set(base.x + ux * reach, Math.max(p0.y, p1.y) + 2.4, base.z + uz * reach);
+}
 
 // 生成一次投掷的骰盅动作计划
 export function makeCupPlan({ base, side, n, rnd = Math.random }) {
@@ -273,9 +153,9 @@ export function cupPose(plan, t, out = { pos: new THREE.Vector3(), quat: new THR
   return out;
 }
 
-// 盅壁：16 块竖板围成一圈，覆盖本地高度 y0..y1；返回 [shape, offset, orientation]
+// 盅壁：24 块竖板围成一圈，覆盖本地高度 y0..y1；返回 [shape, offset, orientation]
 function cupWallShapes(y0, y1) {
-  const N = 16;
+  const N = 24;
   const rc = CUP_IN_R + CUP_WALL / 2;
   const halfW = rc * Math.tan(Math.PI / N) + 0.05;
   const halfH = (y1 - y0) / 2;
@@ -300,9 +180,18 @@ function cupBody(cupMat) {
  * 返回 { frames（60 帧/秒，每帧 n×7 个数）, tops, impacts, spawnFrames, endT }
  */
 export function simulateCupThrow(n, plan, rnd = Math.random) {
+  const steps = cupThrowSteps(n, plan, rnd);
+  for (;;) {
+    const s = steps.next();
+    if (s.done) return s.value;
+  }
+}
+
+// 同一件事的分步版：一次走一小段，game.js 按时间片跑，和举骰盅的动作同时进行，点「掷骰」时画面不卡
+export function* cupThrowSteps(n, plan, rnd = Math.random) {
   let best = null;
   for (let attempt = 0; attempt < 10; attempt++) {
-    const r = runCup(n, plan, rnd, attempt);
+    const r = yield* runCup(n, plan, rnd, attempt);
     if (r.ok) return r;
     if (!best || r.badness < best.badness) best = r;
   }
@@ -328,7 +217,7 @@ function settleCupFrames(r, n) {
     q.set(last[o + 3], last[o + 4], last[o + 5], last[o + 6]);
     const up = VALUE_NORMALS[topFace(q).value].clone().applyQuaternion(q);
     q.premultiply(new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 1, 0)));
-    fixed.set([pos[i][0], 0.5, pos[i][1], q.x, q.y, q.z, q.w, 1], o);
+    fixed.set([pos[i][0], 0.5 + FLOOR_Y, pos[i][1], q.x, q.y, q.z, q.w, 1], o);
     r.tops.push(topFace(q).value);
   }
   const qa = new THREE.Quaternion();
@@ -353,7 +242,7 @@ function settleCupFrames(r, n) {
   r.endT = r.frames.length / 60;
 }
 
-function runCup(n, plan, rnd, attempt) {
+function* runCup(n, plan, rnd, attempt) {
   const { world, diceMat, wallMat } = buildWorld({ wallTop: 6.5 });
   world.allowSleep = false;
   const cupMat = new CANNON.Material('cup');
@@ -435,7 +324,8 @@ function runCup(n, plan, rnd, attempt) {
   let calm = 0;
   const maxT = plan.tAway1 + 7;
   while (t < maxT) {
-    const dt = t < plan.tAway1 ? 1 / 240 : 1 / 120;
+    // 步子不能大：摇盅时骰子和盅壁都很快，一步走得太远，骰子就陷进盅壁、互相陷进去了
+    const dt = t < plan.tAway1 + 0.5 ? 1 / DT_FAST : 1 / DT_SLOW;
     // 盅里用 3 倍重力：场景整体是慢放的重力，摇盅却是正常速度，不加重力骰子会被甩出盅口；倒出来以后恢复慢放
     world.gravity.set(0, t < plan.tShake1 ? -190 : -62, 0);
     // 按时出生
@@ -502,6 +392,7 @@ function runCup(n, plan, rnd, attempt) {
     }
     world.step(dt);
     t += dt;
+    yield;
     if (t >= nextRecord - 1e-9) {
       frameIdx++;
       record();
@@ -524,7 +415,7 @@ function runCup(n, plan, rnd, attempt) {
     const tf = topFace(q);
     tops.push(tf.value);
     if (tf.flat < 0.985) badness += 1 + (1 - tf.flat);
-    if (b.position.y > 0.62) badness += 3;
+    if (b.position.y > 0.62 + FLOOR_Y) badness += 3;
     if (b.position.x < TRAY.minX || b.position.x > TRAY.maxX || b.position.z < TRAY.minZ || b.position.z > TRAY.maxZ) badness += 5;
   });
   if (sc.some((x) => x < 1)) badness += 3;

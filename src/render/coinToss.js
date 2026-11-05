@@ -1,31 +1,37 @@
-// 开局前掷币定先手（v3.4）：亚历山大格罗申从画面下方弹起，在眼前翻转、迎着吊灯一闪一闪，
-// 落进骰盘中央弹一下、立着越转越快（欧拉盘）后啪地躺平；镜头推近看清朝上的面，
-// 看清结果后，金币轻抬并平放到左侧中立区域（下一局开始或回菜单时收走）。
+// 开局前掷币定先手：亚历山大格罗申从画面下方弹起，在眼前翻转、迎着吊灯一闪一闪，
+// 砸进骰盘、弹起来、立着打转，越转越快后啪地躺平（这一段是真算出来的物理，见 coinPhysics.js）；
+// 镜头推近看清朝上的面，看清结果后，金币一跳落到左侧中立区域（下一局开始或回菜单时收走）。
 // 头像朝上 = 玩家先手，十字朝上 = 对手先手。
 import * as THREE from 'three';
 import { GAME_CAM, easeInOut } from './stage.js';
 import { TABLE_Y } from './world.js';
 import { makeGroschen, G_R, G_REST } from './groschen.js';
 import { NEUTRAL_COIN_SPOT, TOSS_SCALE } from './coinLayout.js';
+import { simulateCoinToss, COIN_FRAME, COIN_STRIDE } from './coinPhysics.js';
 
 const TRAY_Y = TABLE_Y + 0.31; // 骰盘皮面
 export { TOSS_SCALE };
 const RADIUS = G_R * TOSS_SCALE;
 const REST = G_REST * TOSS_SCALE;
-const S = new THREE.Vector3(0.6, 8.5, 12.0);
-const A = new THREE.Vector3(0.25, 13.5, 6.5);
-const T_UP = 0.5; // 上升
-const T_DOWN = 1.0; // 下落
-const SPIN = 5; // 空中翻几圈
-const TILT = 0.45; // 落下时币面和桌面的夹角（弧度），接着立着打转
-const ANG0 = 1.1; // 弹起时币已经斜着（平躺着进画面会正好把吊灯反射进镜头，离镜头近，泛光成一大团）
-const L = new THREE.Vector3(0, TRAY_Y + RADIUS * Math.sin(TILT) + REST * Math.cos(TILT), 1.55);
-const WOBBLE = 1.25; // 立着打转多久
-const HOP = 0.24; // 落下后弹起一下
-const SLIDE = 0.3; // 落下后往前滑
+// 掷币的物理参数：从画面下方弹起，约 1.5 秒后落到骰盘中间；木框是四面墙
+export const TOSS = {
+  R: RADIUS,
+  half: REST,
+  floor: TRAY_Y,
+  rimTop: TABLE_Y + 1.1,
+  walls: [[1, 0, -8], [-1, 0, -8], [0, 1, -5.3], [0, -1, -5.3]].map(([x, z, d]) => ({ n: new THREE.Vector3(x, 0, z), d })),
+  start: new THREE.Vector3(0.6, 8.5, 12.0),
+  land: new THREE.Vector3(0, TRAY_Y + 0.7, 1.2),
+  T: 1.5,
+  drag: 2.6, // 贴着皮面时转动衰减得多快
+  maxT: 6.5,
+  settleMin: 1.4, // 从落地到躺平，这个范围里看着最舒服
+  settleMax: 2.5,
+};
+const HOP = 2.2; // 看完结果后金币跳到桌边的高度
 const SPOT = new THREE.Vector3(0, 69, 20); // 吊灯（world.js 的聚光灯）
 const X = new THREE.Vector3(1, 0, 0);
-const Y = new THREE.Vector3(0, 1, 0);
+const Z = new THREE.Vector3(0, 0, 1);
 
 // 闪光：四角星 + 柔光
 function glintTexture() {
@@ -88,80 +94,66 @@ export class CoinToss {
     const st = this.stage;
     const au = this.audio;
     const coin = this.coin;
-    const target = heads ? 0 : Math.PI; // 平躺时绕 X 轴转了多少
-    const qFace = new THREE.Quaternion().setFromAxisAngle(X, target);
-    const spinEnd = SPIN * Math.PI * 2 + target + TILT;
-    const yaw0 = (Math.random() - 0.5) * 0.5;
+    const qFace = new THREE.Quaternion().setFromAxisAngle(X, heads ? 0 : Math.PI);
+    // 物理算好的这一段
+    const sim = simulateCoinToss(TOSS);
+    const F = sim.frames;
+    const last = F.length / COIN_STRIDE - 1;
+    const rest = new THREE.Vector3(F[last * COIN_STRIDE], F[last * COIN_STRIDE + 1], F[last * COIN_STRIDE + 2]);
+    // 圆片是对称的：绕自身的轴转、翻个面都不影响轨迹。算好这一下，要的那面就朝上、头像也摆正
+    const qFix = new THREE.Quaternion(F[last * COIN_STRIDE + 3], F[last * COIN_STRIDE + 4], F[last * COIN_STRIDE + 5], F[last * COIN_STRIDE + 6]).invert().multiply(qFace);
     const parked = new THREE.Vector3(NEUTRAL_COIN_SPOT.x, TABLE_Y + REST, NEUTRAL_COIN_SPOT.z);
-    const carryY = TABLE_Y + 1.35 + REST; // Clear the wooden rim while keeping the coin flat.
-    const landSpeed = 4.4; // 落下瞬间往前（-Z）的速度，滑一小段
-    const rest = new THREE.Vector3(L.x, TRAY_Y + REST, L.z - (landSpeed * SLIDE) / 2);
     const camClose = rest.clone().add(new THREE.Vector3(0, 9.4, 6.3));
     const camPos = new THREE.Vector3();
     const look = new THREE.Vector3();
-    const q = new THREE.Quaternion();
-    const qa = new THREE.Quaternion();
+    const qs = [0, 0, 0, 0];
     const n = new THREE.Vector3();
     const toL = new THREE.Vector3();
     const toV = new THREE.Vector3();
     const axis = new THREE.Vector3();
-    const T_FLY = T_UP + T_DOWN;
-    const T_REST = T_FLY + WOBBLE; // 躺平
-    const T_PUSH = T_FLY + WOBBLE - 0.4; // 镜头开始推近
+    const T_LAND = sim.tLand;
+    const T_REST = sim.tEnd; // 躺平
+    const T_PUSH = T_REST - 0.4; // 镜头开始推近
     const T_BACK = T_REST + 2.6;
     const T_PLACE = 1.2;
     const T_END = T_BACK + T_PLACE;
     let time = 0;
-    let phi = 0;
-    let half = 0;
+    let speed = 1;
+    // 玩家点了「开始对局」：不等了，直接开始把币放到桌边，放得也快一点
+    this.hurry = () => {
+      time = Math.max(time, T_BACK);
+      speed = 2.6;
+    };
     let glint = 0;
     let glintCool = 0;
-    const fired = { land: false, hop: false, settle: false, result: false, placed: false };
+    const fired = { settle: false, result: false, placed: false };
+    let ev = 0;
     coin.visible = true;
-    coin.position.copy(S);
-    coin.quaternion.identity();
+    coin.position.set(F[0], F[1], F[2]);
+    coin.quaternion.set(F[3], F[4], F[5], F[6]).multiply(qFix);
     this.glint.visible = true;
     this.heads = heads;
     au.coinFlick();
     return new Promise((resolve) => {
       this.done = resolve;
       this.off = st.add((dt) => {
-        time += dt;
+        time += dt * speed;
         const t = time;
         // ---------- 位置和朝向 ----------
-        if (t < T_FLY) {
-          // 起点 → 最高点 → 落点各走一段直线：上升减速、下落加速，在最高点相接。
-          // 下落这段大致顺着视线往远处落，画面上币一直往下走、越来越小（不会先往上飘）
-          if (t < T_UP) coin.position.lerpVectors(S, A, 1 - (1 - t / T_UP) ** 2);
-          else coin.position.lerpVectors(A, L, ((t - T_UP) / T_DOWN) ** 2);
-          // 绕 X 轴翻（翻转轴随时间轻轻偏一点，不那么机械）
-          const ang = ANG0 + (spinEnd - ANG0) * (t / T_FLY);
-          qa.setFromAxisAngle(Y, yaw0 * (1 - t / T_FLY));
-          q.setFromAxisAngle(X, ang);
-          coin.quaternion.copy(qa).multiply(q);
-        } else if (t < T_REST) {
-          // 落下：弹一下、往前滑一点、立着打转越转越快，最后躺平
-          const tl = t - T_FLY;
-          const s = tl / WOBBLE;
-          const alpha = TILT * (1 - s) ** 1.5;
-          const rate = Math.min(14, 2.2 / Math.sqrt(Math.max(alpha / TILT, 0.02)));
-          phi += rate * Math.PI * 2 * dt;
-          if (Math.floor(phi / Math.PI) > half) {
-            half = Math.floor(phi / Math.PI);
-            if (tl > HOP) au.coinRattle(rate / 14);
-          }
-          qa.setFromAxisAngle(axis.set(Math.cos(phi), 0, -Math.sin(phi)), alpha);
-          coin.quaternion.copy(qa).multiply(qFace);
-          const hop = tl < HOP ? 0.5 * Math.sin((Math.PI * tl) / HOP) : 0;
-          const sl = Math.min(tl, SLIDE);
-          coin.position.set(L.x, TRAY_Y + RADIUS * Math.sin(alpha) + REST * Math.cos(alpha) + hop, L.z - landSpeed * (sl - (sl * sl) / (2 * SLIDE)));
-          if (!fired.land) {
-            fired.land = true;
-            au.coinLand(1);
-          }
-          if (!fired.hop && tl >= HOP) {
-            fired.hop = true;
-            au.coinLand(0.45);
+        if (t < T_REST) {
+          // 回放物理：飞、砸、弹、打转
+          const u = Math.min(last - 1, t / COIN_FRAME);
+          const i = Math.floor(u);
+          const a = u - i;
+          const A = i * COIN_STRIDE;
+          const B = A + COIN_STRIDE;
+          coin.position.set(F[A] + (F[B] - F[A]) * a, F[A + 1] + (F[B + 1] - F[A + 1]) * a, F[A + 2] + (F[B + 2] - F[A + 2]) * a);
+          THREE.Quaternion.slerpFlat(qs, 0, F, A + 3, F, B + 3, a);
+          coin.quaternion.set(qs[0], qs[1], qs[2], qs[3]).multiply(qFix);
+          while (ev < sim.events.length && sim.events[ev].t <= t) {
+            const e = sim.events[ev++];
+            if (e.kind === 'rattle') au.coinRattle(Math.min(1, e.v / 28));
+            else au.coinLand(Math.min(1, 0.2 + e.v / 26));
           }
         } else if (t < T_BACK) {
           coin.position.copy(rest);
@@ -171,14 +163,12 @@ export class CoinToss {
             au.coinSettle();
           }
         } else if (t < T_END) {
-          // Lift, carry level over the rim, then set down in the same neutral spot for either result.
+          // 轻轻一跳越过木框，落在桌边：不管结果如何都是同一个中立位置
           const u = (t - T_BACK) / T_PLACE;
-          const across = easeInOut(THREE.MathUtils.clamp((u - .18) / .64, 0, 1));
-          coin.position.lerpVectors(rest, parked, across);
-          if (u < .18) coin.position.y = THREE.MathUtils.lerp(rest.y, carryY, easeInOut(u / .18));
-          else if (u > .82) coin.position.y = THREE.MathUtils.lerp(carryY, parked.y, easeInOut((u - .82) / .18));
-          else coin.position.y = carryY;
-          coin.quaternion.copy(qFace);
+          const e = easeInOut(u);
+          coin.position.lerpVectors(rest, parked, e);
+          coin.position.y += Math.sin(e * Math.PI) * HOP;
+          coin.quaternion.setFromAxisAngle(Z, Math.sin(e * Math.PI) * 0.3).multiply(qFace);
         } else {
           coin.position.copy(parked);
           coin.quaternion.copy(qFace);
@@ -217,7 +207,7 @@ export class CoinToss {
         const spec = Math.abs(n.dot(toL.add(toV).normalize())) ** 40;
         glint = Math.max(spec, glint * Math.exp(-dt * 9));
         glintCool -= dt;
-        if (spec > 0.6 && glintCool <= 0 && t < T_FLY) {
+        if (spec > 0.6 && glintCool <= 0 && t < T_LAND) {
           glintCool = 0.25;
           au.coinGlint((coin.position.x / 12) * 0.5);
         }
@@ -231,6 +221,8 @@ export class CoinToss {
       });
     });
   }
+
+  hurry() {}
 
   finish(ok) {
     this.stage.camMode = 'game';

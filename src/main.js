@@ -5,7 +5,9 @@ import { Cutscenes } from './render/cutscenes.js';
 import { createThumbnailer, Die3D } from './render/diceModel.js';
 import { AudioEngine } from './audio/audio.js';
 import { UI } from './ui/ui.js';
-import { Game } from './game/game.js';
+import { Game, OPPONENT_OF, FIRST_DIFFICULTY } from './game/game.js';
+import { bindEasterEggs } from './game/eggs.js';
+import { profile } from './game/profile.js';
 import { DICE } from './data/dice.js';
 import { i18n } from './i18n.js';
 import THUMBS from './generated/thumbs.js';
@@ -28,6 +30,9 @@ async function main() {
   const mark = (k) => (window.__loadTimes = window.__loadTimes || []).push([k, Math.round(performance.now())]);
   i18n.set(i18n.lang);
   const audio = new AudioEngine();
+  audio.musicOn = profile.music;
+  audio.soundOn = profile.sound;
+  document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
   const ui = new UI(document.getElementById('ui'), audio);
   let entered = false;
   let onEnter = null;
@@ -38,7 +43,7 @@ async function main() {
   stage.paused = true; // 着色器编译完之前先不渲染，避免主线程卡住
   // 过场动画（v3.4 起人物只出现在视频里）：开场页后面先显示门关着的那一帧
   const csMeta = Cutscenes.available();
-  const cs = csMeta ? new Cutscenes(stage, audio, csMeta) : null;
+  const cs = csMeta ? new Cutscenes(stage, audio, csMeta, OPPONENT_OF[FIRST_DIFFICULTY]) : null;
   // Attach the rejection handler immediately, while shaders are still compiling.
   const still = cs ? cs.showIntroStill().then(() => null, (error) => error) : null;
   mark('stage');
@@ -51,6 +56,7 @@ async function main() {
   const game = new Game(stage, ui, audio);
   game.tavern = tav;
   game.cutscenes = cs;
+  bindEasterEggs(game);
   if (cs) cs.onError = (error) => game.disableCutscenes(error);
   mark('tavern');
   ui.setLoading(0.3);
@@ -107,7 +113,7 @@ async function main() {
     stage.paused = true;
     // 开场要用的几段先解出来，其余的在后台慢慢解
     try {
-      await cs.prepare(['intro_b', 'idle_elder']);
+      await cs.prepare(['idle_' + OPPONENT_OF[FIRST_DIFFICULTY]]);
       cs.prepare(Object.keys(csMeta.clips)).catch((error) => game.disableCutscenes(error));
     } catch (error) { game.disableCutscenes(error); }
   }

@@ -62,6 +62,8 @@ export class Stage {
     this.camMode = 'game'; // 'game'：停在牌桌机位，有轻微呼吸感；'free'：由别处控制
     this.wobble = 1; // 镜头呼吸的幅度（从视频切回实时画面时先是 0，和视频最后一帧的机位完全一样，再慢慢加上）
     this.fovFixK = 1; // 窄屏加大视角的程度（和视频衔接时先按视频的视角，再慢慢放开）
+    this.timeScale = 1; // 游戏时间的快慢：对手回合按住可以加速
+    this.timeTarget = 1;
     this.videoAspect = 0; // 过场动画的宽高比（视频按高度铺满屏幕；比它还宽的屏幕上下会裁掉一点）
 
     // Composer applies pixelRatio itself. Supplying physical pixels here squared DPR.
@@ -151,7 +153,10 @@ export class Stage {
       return;
     }
     const elapsed = this.clock.getDelta();
-    const dt = Math.min(elapsed, this.maxDt);
+    const real = Math.min(elapsed, this.maxDt);
+    // 时间快慢平滑地变：进慢镜头慢一点，出来快一点
+    this.timeScale += (this.timeTarget - this.timeScale) * Math.min(1, real * (this.timeTarget < this.timeScale ? 7 : 11));
+    const dt = real * this.timeScale;
     this.time += dt;
     const t = this.time;
     for (const tw of [...this.tweens]) {
@@ -179,8 +184,11 @@ export class Stage {
   gamePos(t = this.time, v = new THREE.Vector3()) {
     const p = GAME_CAM.pos;
     const wb = this.reducedMotion ? 0 : this.wobble;
-    return v.set(p.x + Math.sin(t * 0.21) * 0.25 * wb, p.y + Math.sin(t * 0.33) * 0.15 * wb, p.z + Math.sin(t * 0.17) * 0.2 * wb);
+    // 喝多了（彩蛋）：镜头慢慢晃
+    const d = this.reducedMotion ? 0 : this.tipsy || 0;
+    return v.set(p.x + Math.sin(t * 0.21) * 0.25 * wb + Math.sin(t * 0.9) * 1.1 * d, p.y + Math.sin(t * 0.33) * 0.15 * wb + Math.sin(t * 0.6) * 0.5 * d, p.z + Math.sin(t * 0.17) * 0.2 * wb + Math.cos(t * 0.75) * 0.8 * d);
   }
+
 
   // 开局后统计几秒帧时间：太慢就先关环境光遮蔽，再降分辨率
   watchQuality(dt) {

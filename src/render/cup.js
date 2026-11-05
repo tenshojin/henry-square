@@ -181,6 +181,33 @@ function medallionTexture() {
   return t;
 }
 
+function bottomTexture() {
+  const s = 256;
+  const col = makeCanvas(s);
+  const c = col.getContext('2d');
+  c.fillStyle = '#23140c';
+  c.fillRect(0, 0, s, s);
+  const rnd = mulberry32(5);
+  speckle(c, s, s, rnd, 2600, '#000000', 1.4, 0.3);
+  c.strokeStyle = '#4a2c18';
+  c.lineWidth = 3;
+  for (const r of [112, 100]) {
+    c.beginPath();
+    c.arc(s / 2, s / 2, r, 0, Math.PI * 2);
+    c.stroke();
+  }
+  c.setLineDash([7, 6]);
+  c.strokeStyle = '#6a4a2c';
+  c.lineWidth = 2;
+  c.beginPath();
+  c.arc(s / 2, s / 2, 80, 0, Math.PI * 2);
+  c.stroke();
+  c.setLineDash([]);
+  const t = new THREE.CanvasTexture(col);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export function createCup({ leather = '#4a2414', seed = 9 } = {}) {
   const group = new THREE.Group();
   const { col, bump } = leatherCupTexture(seed, leather);
@@ -244,6 +271,11 @@ export function createCup({ leather = '#4a2414', seed = 9 } = {}) {
   foot.castShadow = true;
   foot.receiveShadow = true;
   group.add(foot);
+  // 盅底：倒骰子时会翻过来对着镜头，贴一块深色皮子，压一圈花
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(1.34, 48), new THREE.MeshStandardMaterial({ map: bottomTexture(), roughness: 0.82 }));
+  bottom.rotation.x = Math.PI / 2;
+  bottom.position.y = -0.004;
+  group.add(bottom);
   const footRing = new THREE.Mesh(new THREE.TorusGeometry(1.36, 0.045, 10, 72), darkBrass);
   footRing.rotation.x = Math.PI / 2;
   footRing.position.y = 0.4;

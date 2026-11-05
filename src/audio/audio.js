@@ -63,6 +63,8 @@ export class AudioEngine {
     this.music = bus(0.34, 0.3, this.roomFilter);
     this.voice = bus(1.0, 0.45);
     this.setInside(this.insideLevel ?? 1);
+    this.setSound(this.soundOn);
+    this.setMusic(this.musicOn);
     this.noise = this.makeNoise(2);
     this.brown = this.makeBrown(4);
     // 解码语音
@@ -82,6 +84,12 @@ export class AudioEngine {
 
   resume() {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
+  // 切到别的标签页：酒馆的声音跟着停，切回来接着响
+  setHidden(hidden) {
+    if (!this.ctx) return;
+    if (hidden) this.ctx.suspend();
+    else this.ctx.resume();
   }
 
   setSound(on) {
@@ -310,6 +318,63 @@ export class AudioEngine {
       this.burst({ t: k * dur, freq: rand(380, 620) + 180 * Math.sin(k * 9), q: 4, gain: gain * (0.6 + 0.4 * Math.sin(Math.PI * k)), dur: 0.09, pan, attack: 0.02 });
     }
     this.ping({ t: dur * 0.9, freq: 120, dur: 0.08, gain: gain * 0.4, pan });
+  }
+  // 骰盅放回桌上：皮革和木头的一声闷响
+  cupDown(pan = 0, gain = 1) {
+    this.burst({ freq: 240, q: 0.9, gain: 0.22 * gain, dur: 0.07, type: 'lowpass', pan, attack: 0.002 });
+    this.ping({ freq: 118, dur: 0.11, gain: 0.16 * gain, pan });
+    this.burst({ t: 0.012, freq: 900, q: 1.2, gain: 0.05 * gain, dur: 0.03, pan });
+  }
+  // 喝一口酒：两下吞咽，末了杯子放回桌上
+  gulp() {
+    for (const t of [0, 0.3, 0.58]) {
+      this.ping({ t, freq: rand(190, 240), dur: 0.1, gain: 0.1 });
+      this.burst({ t, freq: 520, q: 2, gain: 0.05, dur: 0.07, type: 'lowpass' });
+    }
+    this.burst({ t: 0.95, freq: 1500, q: 2, gain: 0.05, dur: 0.05 });
+    this.ping({ t: 0.95, freq: 2100, dur: 0.16, gain: 0.03, type: 'triangle' });
+  }
+  // 能计分的骰子亮起时：五声音阶往上走
+  chime(i = 0) {
+    const f = [659, 784, 880, 1047, 1175, 1319][Math.min(5, i)];
+    this.ping({ freq: f, dur: 0.32, gain: 0.05, type: 'triangle' });
+    this.ping({ freq: f * 2, dur: 0.16, gain: 0.018 });
+  }
+  // 三个 6：低低的一声，像有人在你背后吸了口气
+  devil() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    for (const f of [48, 51.5, 72]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, t0);
+      o.frequency.exponentialRampToValueAtTime(f * 0.86, t0 + 2.2);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 340;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.09, t0 + 0.5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.3);
+      o.connect(lp).connect(g).connect(this.sfx);
+      o.start(t0);
+      o.stop(t0 + 2.4);
+    }
+  }
+  // 全顺：鲁特琴从低到高扫一串
+  fanfare() {
+    if (!this.ctx) return;
+    [62, 64, 65, 67, 69, 71, 74].forEach((n, i) => this.pluck(n, i * 0.085, 0.38, this.sfx));
+  }
+  // 一口气吹灭蜡烛
+  puff() {
+    this.burst({ freq: 700, q: 0.5, gain: 0.14, dur: 0.22, attack: 0.03 });
+  }
+  // 火苗呼地蹿高（全骰得分）
+  whumpf() {
+    this.burst({ freq: 170, q: 0.7, gain: 0.32, dur: 0.34, type: 'lowpass', attack: 0.03 });
+    this.burst({ t: 0.05, freq: 1500, q: 0.7, gain: 0.09, dur: 0.3, attack: 0.05 });
   }
   // 脚步：很轻的闷响，偶尔地板吱一声
   footstep(pan = 0, gain = 0.05) {

@@ -43,10 +43,10 @@ export function makeFireMaterial(seed = 0, intensity = 2.2) {
 
 export function makeCandleFlameMaterial(seed = 0) {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uSeed: { value: seed } },
+    uniforms: { uTime: { value: 0 }, uSeed: { value: seed }, uTint: { value: 0 } },
     vertexShader: VERT,
     fragmentShader: /* glsl */ `
-      uniform float uTime; uniform float uSeed; varying vec2 vUv;
+      uniform float uTime; uniform float uSeed; uniform float uTint; varying vec2 vUv;
       void main(){
         vec2 p = vUv - vec2(0.5, 0.28);
         float sway = sin(uTime * 7.0 + uSeed) * 0.04 + sin(uTime * 13.0 + uSeed * 2.0) * 0.02;
@@ -58,6 +58,7 @@ export function makeCandleFlameMaterial(seed = 0) {
         col = mix(col, vec3(1.0, 0.98, 0.9), smoothstep(0.6, 0.95, f));
         float blue = smoothstep(0.12, 0.0, length(vec2(p.x, (p.y + 0.06) * 2.2))) * 0.5;
         col = mix(col, vec3(0.3, 0.45, 1.0), blue * (1.0 - smoothstep(0.0, 0.1, p.y + 0.02)));
+        col = mix(col, col.grb * vec3(0.45, 1.1, 0.6), uTint);
         gl_FragColor = vec4(col * f * 2.6, f);
       }`,
     transparent: true,

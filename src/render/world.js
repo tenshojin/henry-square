@@ -2,10 +2,10 @@
 // 这里只负责：还原光照贴图、给人物和骰子打光（全景环境光 + 吊灯主光 + 壁炉火光）、
 // 在标记点上放会动的火焰、搭骰盘、摆钱币、开场时转动大门。
 import * as THREE from 'three';
-import { COIN_STACKS, LOOSE_COINS } from './coinLayout.js';
+import { COIN_STACKS, LOOSE_COINS, PURSES, CANDLE, MUG } from './coinLayout.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { loadGLB, assetBuffer, assetJSON } from './assets.js';
-import { createHearthFire, makeCandleFlameMaterial, createDust } from './fire.js';
+import { createHearthFire, makeCandleFlameMaterial, createDust, createCandle, softDot } from './fire.js';
 import { canvasTexture, leatherTexture } from './canvasTex.js';
 import { beamWood, pbr } from './ptex.js';
 import * as P from './props.js';
@@ -78,6 +78,140 @@ function buildTray(scene) {
       scene.add(stud);
     }
   }
+}
+
+// 桌上的蜡烛：牌桌机位里唯一的活光源。火苗会被风吹歪（gust），可以吹灭再点上
+function buildTableCandle(scene, updaters) {
+  const g = new THREE.Group();
+  g.position.set(CANDLE.x, TABLE_Y, CANDLE.z);
+  const metal = new THREE.MeshStandardMaterial({ color: '#7a5a30', metalness: 1, roughness: 0.46 });
+  const dish = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [1.05, 0], [1.2, 0.1], [1.24, 0.26], [1.14, 0.22], [0.72, 0.1], [0.5, 0.14], [0.46, 0.34], [0, 0.34]].map(([r, y]) => new THREE.Vector2(r, y)), 40), metal);
+  dish.castShadow = true;
+  dish.receiveShadow = true;
+  g.add(dish);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.06, 10, 28), metal);
+  ring.position.set(1.34, 0.16, 0);
+  ring.rotation.x = Math.PI / 2;
+  ring.castShadow = true;
+  g.add(ring);
+  const candle = createCandle({ height: 1.25, radius: 0.4, color: '#d9c49a', seed: 3, flameScale: 0.74 });
+  candle.position.y = 0.3;
+  g.add(candle);
+  scene.add(g);
+  const top = new THREE.Vector3(CANDLE.x, TABLE_Y + 2.3, CANDLE.z);
+  const light = new THREE.PointLight('#ffb36b', 42, 0, 2);
+  light.position.copy(top);
+  scene.add(light);
+  // 烘焙的桌面不受实时光影响：贴一片柔光当烛光在桌上的光晕
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({ map: softDot(), color: '#ff9a4e', transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.set(CANDLE.x, TABLE_Y + 0.03, CANDLE.z);
+  glow.renderOrder = 1;
+  glow.userData.noAO = true;
+  scene.add(glow);
+  const flame = candle.userData.flame;
+  const state = { lit: true, level: 1, gust: 0, devil: 0, top };
+  const warm = new THREE.Color('#ffb36b');
+  const cold = new THREE.Color('#5de08a');
+  updaters.push((dt, t, cam) => {
+    candle.userData.update(dt, t, cam);
+    state.gust *= Math.exp(-dt * 3.2);
+    state.devil *= Math.exp(-dt * 0.9);
+    light.color.lerpColors(warm, cold, Math.min(1, state.devil * 1.4));
+    flame.material.uniforms.uTint.value = Math.min(1, state.devil * 1.4);
+    state.level += ((state.lit ? 1 : 0) - state.level) * Math.min(1, dt * (state.lit ? 5 : 16));
+    const f = state.level * (0.84 + Math.sin(t * 11.3) * 0.07 + Math.sin(t * 7.1 + 1.3) * 0.06 + Math.sin(t * 23.7) * 0.03 - state.gust * 0.42);
+    light.intensity = 42 * Math.max(0, f);
+    glow.material.opacity = 0.1 * Math.max(0, f);
+    flame.visible = state.level > 0.04;
+    flame.scale.set(state.level * (1 - state.gust * 0.35), state.level * (1 + Math.sin(t * 11 + 3) * 0.05 - state.gust * 0.4), 1);
+    flame.rotation.z = Math.sin(t * 17) * state.gust * 0.5;
+  });
+  return state;
+}
+
+// 桌面的烘焙贴图看近了是糊的：叠一层细木纹、划痕、杯底印子和蜡滴（只会变暗的“正片叠底”）
+function buildTableDetail() {
+  const W = 2048;
+  const H = 1024;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  let s = 2024;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, W, H);
+  // 木纹：顺着木板方向的细线（贴图的 x 是桌子的 z 方向）
+  for (let i = 0; i < 2600; i++) {
+    const y = rnd() * H;
+    const x = rnd() * W;
+    const len = 90 + rnd() * 460;
+    const a = 0.04 + rnd() * 0.14;
+    g.strokeStyle = `rgba(30,14,6,${a})`;
+    g.lineWidth = 0.5 + rnd() * 1.7;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.bezierCurveTo(x + len * 0.3, y + (rnd() - 0.5) * 7, x + len * 0.7, y + (rnd() - 0.5) * 7, x + len, y + (rnd() - 0.5) * 5);
+    g.stroke();
+  }
+  // 木节
+  for (let i = 0; i < 7; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    for (let k = 0; k < 9; k++) {
+      g.strokeStyle = `rgba(26,12,5,${0.2 - k * 0.018})`;
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.ellipse(x, y, 7 + k * 8, 3 + k * 3.2, (rnd() - 0.5) * 0.2, 0, 6.3);
+      g.stroke();
+    }
+  }
+  // 刀痕、划痕
+  for (let i = 0; i < 90; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const a = rnd() * 6.3;
+    const l = 14 + rnd() * 90;
+    g.strokeStyle = `rgba(20,9,4,${0.14 + rnd() * 0.22})`;
+    g.lineWidth = 0.6 + rnd() * 0.9;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    g.stroke();
+  }
+  // 酒杯底的水印
+  for (let i = 0; i < 9; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = 36 + rnd() * 16;
+    g.strokeStyle = `rgba(26,12,6,${0.12 + rnd() * 0.12})`;
+    g.lineWidth = 2.4 + rnd() * 2.6;
+    g.beginPath();
+    g.arc(x, y, r, rnd() * 6, rnd() * 6 + 3.6 + rnd() * 2.6);
+    g.stroke();
+  }
+  // 深色污渍
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = 40 + rnd() * 150;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(24,10,4,${0.05 + rnd() * 0.1})`);
+    gr.addColorStop(1, 'rgba(24,10,4,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(64, 32), new THREE.MeshBasicMaterial({ map: t, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, toneMapped: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.rotation.z = Math.PI / 2;
+  m.position.set(0, TABLE_Y + 0.012, -1);
+  m.renderOrder = 0;
+  m.userData.noAO = true;
+  return m;
 }
 
 function place(obj, x, y, z, ry = 0) {
@@ -183,10 +317,10 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   spot.userData.base = 12000;
   scene.add(spot, spot.target);
   lights.spot = spot;
-  const candle = Object.entries(markers).find(([n]) => n.includes('table_candle'));
-  if (candle) {
+  const tableCandle = Object.entries(markers).find(([n]) => n.includes('table_candle'));
+  if (tableCandle) {
     const cl = new THREE.PointLight('#ffa860', 70, 0, 2);
-    cl.position.copy(at(candle[1])).add(new THREE.Vector3(0, 1.5, 0));
+    cl.position.copy(at(tableCandle[1])).add(new THREE.Vector3(0, 1.5, 0));
     scene.add(cl);
     lights.tableCandle = cl;
   }
@@ -208,8 +342,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   await loadGroschen(renderer);
   const stacks = COIN_STACKS.map(({ metal, n, seed, x, z }) => place(groschenStack(n, seed, metal), x, TABLE_Y, z));
   scene.add(...stacks);
-  scene.add(place(groschenPurse(13), -12.4, TABLE_Y, 13.2, 0.5));
-  scene.add(place(groschenPurse(16), 13.0, TABLE_Y, -14.8, 3.4));
+  for (const p of PURSES) scene.add(place(groschenPurse(p.seed), p.x, TABLE_Y, p.z, p.yaw));
   for (const [i, spec] of LOOSE_COINS.entries()) {
     const loose = makeGroschen({ seg: 48, variant: i, metal: spec.metal });
     loose.position.set(spec.x, TABLE_Y + G_REST * loose.scale.x, spec.z);
@@ -225,9 +358,26 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   const props = await loadGLB('props');
   const mug = props.scene.getObjectByName('mug_pewter').clone();
   mug.scale.setScalar(UNIT);
-  mug.position.set(17.6, TABLE_Y, -3.9);
-  mug.traverse((o) => o.isMesh && (o.castShadow = true));
+  mug.position.set(MUG.x, TABLE_Y, MUG.z);
+  mug.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    // 这个角落吊灯照不到：金属度太高的杯子只反射四周的黑暗，看着是一团黑影。调成哑光的旧锡，靠下面的侧光显形
+    if (o.name === 'mug_pewter_1') {
+      o.material.metalness = 0.5;
+      o.material.roughness = 0.42;
+      o.material.envMapIntensity = 2.6;
+      o.material.color.setScalar(2);
+    }
+  });
   scene.add(mug);
+  // 给酒杯一点侧光（烛光从桌子中间过来），不然只剩一团黑影
+  const mugLight = new THREE.PointLight('#ffb878', 170, 20, 2);
+  mugLight.position.set(MUG.x - 5.2, TABLE_Y + 5.9, MUG.z + 4.5);
+  scene.add(mugLight);
 
-  return { updaters, lights, door, markers, root, lightmap: lm, stacks };
+  const candle = buildTableCandle(scene, updaters);
+  scene.add(buildTableDetail());
+
+  return { updaters, lights, door, markers, root, lightmap: lm, stacks, candle, mug };
 }

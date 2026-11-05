@@ -20,12 +20,13 @@ FPS = 32
 XF = 6
 CRF = 42  # 36 / 40 / 44 放大看脸几乎没差别（AI 视频本身偏柔），44 比 40 小两成
 # 预览片：开场 → 坐着 → 低头看牌桌（停一下代表对局）→ 抬头 → 换人 ……（有哪几段就拼哪几段）
-REEL = ['intro_a', 'intro_b', 'idle_elder', 'tilt_down_elder', 1.0, 'tilt_up_elder', 'leave_elder', 'arrive_drinker', 'idle_drinker',
-        'tilt_down_drinker', 1.0, 'tilt_up_drinker', 'leave_drinker', 'arrive_dicer', 'idle_dicer', 'tilt_down_dicer', 1.0, 'tilt_up_dicer',
-        'leave_dicer', 'arrive_barmaid', 'idle_barmaid', 'tilt_down_barmaid', 1.0, 'tilt_up_barmaid', 'leave_barmaid', 'arrive_elder', 0.8]
+REEL = ['idle_drinker', 'act_drinker', 'tilt_down_drinker', 1.0, 'tilt_up_drinker', 'leave_drinker', 'arrive_elder', 'idle_elder', 'act_elder',
+        'tilt_down_elder', 1.0, 'tilt_up_elder', 'leave_elder', 'arrive_dicer', 'idle_dicer', 'act_dicer', 'tilt_down_dicer', 1.0, 'tilt_up_dicer',
+        'leave_dicer', 'arrive_barmaid', 'idle_barmaid', 'act_barmaid', 'tilt_down_barmaid', 1.0, 'tilt_up_barmaid', 'leave_barmaid', 'arrive_drinker', 0.8]
 
 log = json.load(open(os.path.join(SRC, 'clips.json'), encoding='utf8'))
-clips = [d for d in sorted(os.listdir(SRC)) if os.path.isdir(os.path.join(SRC, d)) and not d.startswith('tilt_up_')]
+# 开场（intro）是 Seedance 2.0 的成片，由 finish_intro.py 处理；Wan 的旧开场 intro_a / intro_b 不再用
+clips = [d for d in sorted(os.listdir(SRC)) if os.path.isdir(os.path.join(SRC, d)) and not d.startswith('tilt_up_') and d not in ('intro_a', 'intro_b')]
 
 
 def frames(d):
@@ -78,7 +79,8 @@ for c in clips:
     for i, p in enumerate(fs):
         t = i / (len(fs) - 1)
         m, s, km, ks = m0 + (m1 - m0) * t, s0 + (s1 - s0) * t, k0 + (k1 - k0) * t, t0 + (t1 - t0) * t
-        a = (load(p) - m) * (ks / s) + km
+        a = load(p)
+        a = (a - m) * (ks / s) + km
         Image.fromarray(np.clip(a + 0.5, 0, 255).astype(np.uint8)).save(os.path.join(dst, '%05d.png' % i))
     print('color', c, 'end shift', np.round(m1 - k1, 1), flush=True)
 # 落到牌桌的那几段：最后 LAND 帧（镜头已经停住）渐变成牌桌关键帧本身，视频最后一帧和实时画面一模一样；
@@ -140,6 +142,11 @@ if GAME:
     os.makedirs(GAME, exist_ok=True)
     w, h = Image.open(frames(os.path.join(OUT, 'fc', clips[0]))[0]).size
     meta = {'fps': FPS, 'size': [w, h], 'xf': XF, 'codec': 'video/mp4; codecs="av01.0.08M.10"', 'clips': {}}
+    old = os.path.join(GAME, 'cutscenes.json')
+    if os.path.exists(old):
+        kept = json.load(open(old, encoding='utf8'))['clips'].get('intro')
+        if kept:
+            meta['clips']['intro'] = kept
     total = 0
     for c in clips:
         fs = frames(os.path.join(OUT, 'fc', c))
@@ -158,6 +165,11 @@ if GAME:
         meta['clips'][c] = {'frames': len(fs), 'dur': round(len(fs) / FPS, 3)}
         total += os.path.getsize(mp4)
         print('av1', c, len(fs), 'frames', round(os.path.getsize(mp4) / 1e3), 'KB', flush=True)
+        # 放不了 AV1 的浏览器（大多数 iPhone）用的 H.264 小文件：不打进 HTML，放在网站目录里按需加载
+        os.makedirs(os.path.join(GAME, 'h264'), exist_ok=True)
+        subprocess.run([FFMPEG, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(d, '%05d.png'),
+                        '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
+                        '-vf', 'scale=960:480:out_color_matrix=bt709'] + BT709 + ['-movflags', '+faststart', '-an', os.path.join(GAME, 'h264', c + '.mp4')], check=True)
     with open(os.path.join(GAME, 'cutscenes.json'), 'w', encoding='utf8') as f:
         json.dump(meta, f, indent=1)
     print('game clips', len(meta['clips']), round(total / 1e6, 2), 'MB')

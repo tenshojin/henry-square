@@ -68,7 +68,7 @@ console.log('voices:', Object.keys(voices).length);
 const thumbsFile = r('src', 'generated', 'thumbs.js');
 const thumbHash = crypto
   .createHash('sha1')
-  .update(['src/data/dice.js', 'src/render/diceFaces.js', 'src/render/diceModel.js', 'src/render/canvasTex.js'].map((f) => fs.readFileSync(r(f), 'utf8')).join('\n'))
+  .update(['src/data/dice.js', 'src/render/diceFaces.js', 'src/render/diceModel.js', 'src/render/canvasTex.js'].map((f) => fs.readFileSync(r(f), 'utf8').replace(/\r\n/g, '\n')).join('\n'))
   .digest('hex')
   .slice(0, 12);
 let thumbsOk = false;

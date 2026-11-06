@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { COIN_STACKS, LOOSE_COINS, PURSES, CANDLE, MUG } from './coinLayout.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { loadGLB, assetBuffer, assetJSON } from './assets.js';
+import { LITE } from './device.js';
 import { createHearthFire, makeCandleFlameMaterial, createDust, createCandle, softDot } from './fire.js';
 import { canvasTexture, leatherTexture } from './canvasTex.js';
 import { beamWood, pbr } from './ptex.js';
@@ -244,7 +245,8 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
 
   const meta = assetJSON('tavern-meta') || { k: 0.25 };
   const lm = { uLM: { value: meta.k * 0.86 } }; // v3.4 从 1.35 调暗（桌面木头太红太亮；第二轮 1.08 → 0.86）
-  const gltf = await loadGLB('tavern');
+  // 实时画面只看得到牌桌：手机上别的部分（墙、吧台、壁炉……十来张 2048 的大贴图）一概不装，不然内存超了页面会被系统杀掉
+  const gltf = await loadGLB('tavern', LITE ? { drop: (n) => /^B_/.test(n) && !/^B_(table|tabletop|tableprops)$/.test(n) } : {});
   const root = gltf.scene;
   root.scale.setScalar(UNIT);
   root.position.y = FLOOR_Y;
@@ -275,7 +277,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   // ---------- 会动的火 ----------
   const flames = [];
   for (const [name, m] of Object.entries(markers)) {
-    if (name.startsWith('FX_candle')) {
+    if (name.startsWith('FX_candle') && !LITE) {
       const mat = makeCandleFlameMaterial(flames.length * 1.7);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 1.7), mat);
       f.position.copy(at(m)).add(new THREE.Vector3(0, 0.6, 0));
@@ -292,11 +294,13 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
     }
   });
   if (markers.FX_hearth) {
-    const fire = createHearthFire(30, 26);
-    fire.position.copy(at(markers.FX_hearth));
-    fire.rotation.y = -Math.PI / 2;
-    scene.add(fire);
-    updaters.push((dt, t, cam) => fire.userData.update(dt, t, cam));
+    if (!LITE) {
+      const fire = createHearthFire(30, 26);
+      fire.position.copy(at(markers.FX_hearth));
+      fire.rotation.y = -Math.PI / 2;
+      scene.add(fire);
+      updaters.push((dt, t, cam) => fire.userData.update(dt, t, cam));
+    }
     const fl = new THREE.PointLight('#ff8a3a', 26000, 0, 2);
     fl.position.copy(at(markers.FX_hearth)).add(new THREE.Vector3(-14, 18, 0));
     scene.add(fl);
@@ -308,7 +312,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   spot.position.set(0, 69, 20);
   spot.target.position.set(0, TABLE_Y, 2);
   spot.castShadow = true;
-  spot.shadow.mapSize.set(2048, 2048);
+  spot.shadow.mapSize.setScalar(LITE ? 1024 : 2048);
   spot.shadow.camera.near = 30;
   spot.shadow.camera.far = 140;
   spot.shadow.bias = -0.0002;

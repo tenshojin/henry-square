@@ -1,4 +1,5 @@
 // 渲染器、相机、后期（环境光遮蔽 + 泛光 + 调色 / 暗角 / 颗粒）、主循环与补间动画
+import { LITE } from './device.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -45,7 +46,7 @@ export class Stage {
   constructor(container) {
     this.container = container;
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LITE ? 1.5 : 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -68,7 +69,7 @@ export class Stage {
 
     // Composer applies pixelRatio itself. Supplying physical pixels here squared DPR.
     const size = renderer.getSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: LITE ? 2 : 4 });
     this.composer = new EffectComposer(renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // 环境光遮蔽：半分辨率计算，玻璃、火焰、光柱、毛皮外壳等不参与
@@ -104,7 +105,7 @@ export class Stage {
     this.composer.addPass(this.grade);
     // ?hq：锁定最高画质（无头浏览器截图自测用，软件渲染很慢，不锁会被自动降画质）
     this.quality = { level: location.search.includes('hq') ? -1 : 2, frames: 0, acc: 0 };
-    this.pixelRatioCap = 2;
+    this.pixelRatioCap = LITE ? 1.5 : 2;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // 一帧最多推进多少秒（卡顿时不会跳太远）。?maxdt=0.25：无头浏览器自测时帧率很低，让动画跟上真实时间

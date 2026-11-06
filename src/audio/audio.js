@@ -27,6 +27,7 @@ export class AudioEngine {
   async init() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return; // 没有网页音频的浏览器：没声音也能玩
     const ctx = new AC();
     this.ctx = ctx;
     if (ctx.state === "suspended") ctx.resume().catch(() => {});

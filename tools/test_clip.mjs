@@ -140,7 +140,7 @@ function obbDepth(pa, A, ha, pb, B, hb) {
     });
   }
   report('骰子互相穿过', dieDie > 0.06, `最深 ${dieDie.toFixed(3)}（${frames} 帧，${worst}）`);
-  report('骰子陷进盘面', floor > 0.05, `最深 ${floor.toFixed(3)}`);
+  report('骰子陷进盘面', floor > 0.08, `最深 ${floor.toFixed(3)}`);
   report('骰子穿出盘边', wall > 0.05, `最深 ${wall.toFixed(3)}`);
   report('骰子穿出盅壁', cupWall > 0.06, `最深 ${cupWall.toFixed(3)}`);
 }

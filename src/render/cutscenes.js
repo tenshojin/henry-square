@@ -8,6 +8,7 @@
 // 视频是 AV1（打包时以 base64 内嵌）。浏览器放不了 AV1 时没有过场动画，整局都在实时的牌桌画面上进行。
 import { assetJSON } from './assets.js';
 import { waitForMedia, playMedia } from './media.js';
+import { LITE } from './device.js';
 
 const LIVE_FADE = 0.4; // 视频和实时画面互相切换的淡化时长（秒）
 const IDLE_FADE = 0.3; // 从坐着的循环切出去：循环里人可能正偏着头，淡化得比普通接缝长一点
@@ -32,9 +33,13 @@ export class Cutscenes {
     const meta = assetJSON('cutscenes-meta');
     if (!meta) return null;
     const v = document.createElement('video');
-    if (v.canPlayType(meta.codec)) return meta;
-    // 放不了 AV1（大多数 iPhone）：在网站上时改放同目录的 H.264 小文件；双击打开的本地文件没有这些，只能不放过场动画
-    return location.protocol.startsWith('http') && v.canPlayType('video/mp4; codecs="avc1.4D401F"') ? { ...meta, remote: 'assets/cutscenes/h264/' } : null;
+    const site = location.protocol.startsWith('http');
+    const h264 = site && v.canPlayType('video/mp4; codecs="avc1.4D401F"');
+    // 手机在网站上放 H.264 小文件：几乎都有硬件解码，省电；放不了 AV1 的电脑也走这里
+    if (LITE && h264) return { ...meta, remote: 'assets/cutscenes/h264/' };
+    if (v.canPlayType(meta.codec)) return meta.external ? { ...meta, remote: 'assets/cutscenes/' } : meta;
+    // 双击打开的本地文件没有这些小文件，放不了 AV1 就不放过场动画
+    return h264 ? { ...meta, remote: 'assets/cutscenes/h264/' } : null;
   }
 
   constructor(stage, audio, meta, firstOpp) {
@@ -51,6 +56,8 @@ export class Cutscenes {
       const v = document.createElement('video');
       v.muted = true;
       v.playsInline = true;
+      v.setAttribute('muted', '');
+      v.setAttribute('playsinline', '');
       v.preload = 'auto';
       v.disablePictureInPicture = true;
       v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:none';
@@ -119,13 +126,23 @@ export class Cutscenes {
     this.check(token);
     el.pause();
     el.loop = false;
+    // 从网站下载的片段等久一点；手机不会主动下载视频，静音放一下才开始解码，出画面就停
+    const remote = !!this.meta.remote;
     if (el.dataset.clip !== name) {
       el.dataset.clip = name;
-      await waitForMedia(el, 'loadeddata', () => { el.src = src; });
-    } else if (el.currentTime > 0) {
+      await waitForMedia(el, 'loadeddata', () => {
+        el.src = src;
+        if (remote) {
+          el.load();
+          el.play()?.catch(() => {});
+        }
+      }, remote ? 20000 : 8000);
+      el.pause();
+    }
+    if (el.currentTime > 0) {
       await waitForMedia(el, 'seeked', () => { el.currentTime = 0; });
     }
-    if (el.readyState < 2) await waitForMedia(el, 'loadeddata');
+    if (el.readyState < 2) await waitForMedia(el, 'loadeddata', null, remote ? 20000 : 8000);
     this.check(token);
   }
 
@@ -200,7 +217,16 @@ export class Cutscenes {
 
   tick() {
     const el = this.cur;
-    if (!el || el.paused) return;
+    if (!el) return;
+    if (el.paused) {
+      // Safari 内核的循环视频放到头有时会停在第一帧：人就定住了，再放一下
+      const now = performance.now();
+      if (el.loop && !document.hidden && now > (this.nudgeAt || 0)) {
+        this.nudgeAt = now + 600;
+        el.play()?.catch(() => {});
+      }
+      return;
+    }
     const t = el.currentTime;
     if (this.onTime) this.onTime(el.dataset.clip, t);
     if (el.dataset.clip !== this.evClip) return;
@@ -273,7 +299,12 @@ export class Cutscenes {
       this.acting = false;
       this.scheduleAct();
     } catch (e) {
-      if (!(e instanceof Cancelled)) this.onError?.(e);
+      if (e instanceof Cancelled) return;
+      // 小动作放不了不是大事：跳过这一次，人继续坐着，别把过场动画全关了
+      console.warn('Idle gesture skipped.', e);
+      this.acting = false;
+      if (this.cur?.dataset.clip !== idle) await this.cut(idle, { loop: true, token }).catch((err) => { if (!(err instanceof Cancelled)) this.onError?.(err); });
+      this.scheduleAct();
     }
   }
 

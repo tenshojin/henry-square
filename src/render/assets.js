@@ -21,13 +21,39 @@ export function assetJSON(name) {
   return el ? JSON.parse(el.textContent) : null;
 }
 
+// 改一下 GLB 的目录，去掉不要的节点：没人引用的贴图根本不会解码（手机上省下几百兆）
+function pruneGLB(buf, drop) {
+  const head = new DataView(buf);
+  const jsonLen = head.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen)));
+  const gone = new Set();
+  json.nodes.forEach((n, i) => { if (n.name && drop(n.name)) gone.add(i); });
+  for (const s of json.scenes) s.nodes = s.nodes.filter((i) => !gone.has(i));
+  for (const n of json.nodes) if (n.children) n.children = n.children.filter((i) => !gone.has(i));
+  const text = new TextEncoder().encode(JSON.stringify(json));
+  const padded = Math.ceil(text.length / 4) * 4;
+  const rest = new Uint8Array(buf, 20 + jsonLen);
+  const out = new Uint8Array(20 + padded + rest.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, head.getUint32(0, true), true);
+  dv.setUint32(4, head.getUint32(4, true), true);
+  dv.setUint32(8, out.length, true);
+  dv.setUint32(12, padded, true);
+  dv.setUint32(16, head.getUint32(16, true), true);
+  out.fill(0x20, 20, 20 + padded);
+  out.set(text, 20);
+  out.set(rest, 20 + padded);
+  return out.buffer;
+}
+
 let loader = null;
-export async function loadGLB(name) {
+export async function loadGLB(name, { drop } = {}) {
   if (!loader) {
     await MeshoptDecoder.ready;
     loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
   }
-  const buf = await assetBuffer(name);
+  let buf = await assetBuffer(name);
+  if (drop) buf = pruneGLB(buf, drop);
   return new Promise((resolve, reject) => loader.parse(buf, '', resolve, reject));
 }

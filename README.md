@@ -4,7 +4,7 @@
 
 一个中世纪酒馆风格的 3D 掷骰小游戏（Farkle 规则 + 特殊骰子）。所有，或者一无所有。
 
-**在线试玩：<https://tenshojin.github.io/henry-square/>**（建议用电脑上的 Chrome 或 Edge 打开；网址沿用改名前的 henry-square）
+**在线试玩：<https://tenshojin.github.io/henry-square/>**（电脑和手机都能开，手机会自动走轻量版；网址沿用改名前的 henry-square）
 
 ## 怎么玩
 
@@ -48,7 +48,7 @@
   - `assets/cutscenes/`：过场动画（AV1 视频，1280×640，共 25 段；开场每秒 48 帧，其余每秒 32 帧）和 `cutscenes.json`（帧率、接缝帧数、每段时长），由下面的 `tools/anim` 生成；`h264/` 是给放不了 AV1 的设备的备用片（960×480，只在网页版上按需加载，不打进 HTML）
   - `assets/coin/`：格罗申的贴图（正反面的颜色 / 法线 / 遮蔽-粗糙度-金属度、币边、界面用的小图），由 `tools/coin/make_coin.py` 生成；`assets/ui/`：界面的羊皮纸、皮革、金箔贴图，由 `tools/ui/make_textures.py` 生成
   - `src/audio/` 声音；`src/ui/` 界面、样式和游戏图标（`icon.js`）；`src/i18n.js` 中英文文本
-- 网页版：仓库根目录的 `index.html` 只负责跳转到 `亨利酒馆.html`，`.nojekyll` 让 GitHub Pages 原样发布文件。推送到 main 分支后，在线版一两分钟内自动更新。
+- 网页版：仓库根目录的 `index.html` 只负责跳转：电脑到 `亨利酒馆.html`，手机到 `play.html`（打包时一起生成，不内嵌视频，用到再下载，约 13 MB）。手机上只装牌桌这几块模型、渲染分辨率低一档（`src/render/device.js` 的 `LITE`，网址加 `?lite` 可以在电脑上试）。`.nojekyll` 让 GitHub Pages 原样发布文件。推送到 main 分支后，在线版一两分钟内自动更新。
 - 改完后双击 **`rebuild.bat`**（或运行 `tools\node\node.exe build.mjs`），会重新生成 `亨利酒馆.html`（顺带把 `index.html` 复制成 `亨利广场.html`，改名前的网址和收藏照样能打开）。
   - 骰子外观有改动时，打包脚本会自动用电脑上的 Chrome/Edge 在后台重新生成骰子缩略图。
   - 中文字体（思源宋体）只打包游戏里用到的字；新增文字后重新打包即可。英文用 Cinzel（罗马碑刻大写，标题和数字）和 IM Fell English（17 世纪活字，正文），火漆上的字母用 Grenze Gotisch，都是 SIL OFL 授权，装在 `node_modules/@fontsource/`。

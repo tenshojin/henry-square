@@ -37,6 +37,7 @@ async function main() {
   let entered = false;
   let onEnter = null;
   ui.showSplash(() => onEnter && onEnter());
+  document.getElementById('boot')?.remove();
   await nextFrame();
 
   const stage = new Stage(document.getElementById('app'));
@@ -101,13 +102,11 @@ async function main() {
   await nextFrame();
   mark('compile');
   if (cs) {
-    try {
-      const error = await still;
-      if (error) throw error;
-    } catch (e) {
-      // 视频解不出来（浏览器说支持 AV1 但实际不行）：不放过场动画，整局在实时的牌桌画面上进行
-      game.disableCutscenes(e);
-    }
+    // 视频解不出来（浏览器说支持 AV1 但实际不行）：不放过场动画，整局在实时的牌桌画面上进行
+    const failed = (e) => { if (e) game.disableCutscenes(e); };
+    // 从网站下载的片段：网慢时不让进度条卡在这里，先让人能点「推门而入」，点了再等它
+    const waited = await Promise.race([still.then((e) => (failed(e), true)), new Promise((r) => setTimeout(() => r(!csMeta.remote), csMeta.remote ? 5000 : 1e9))]);
+    if (!waited) still.then(failed);
   }
   if (game.cutscenes) {
     stage.paused = true;

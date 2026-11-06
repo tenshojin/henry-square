@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const r = (...p) => path.join(root, ...p);
 const outFile = r('亨利酒馆.html');
+const webFile = r('play.html'); // 手机走的网页版：不内嵌视频，用到再下载，页面小将近一半
 
 // 1. 语音：去掉首尾静音后转 base64
 function trimWav(buf) {
@@ -146,6 +147,8 @@ async function buildHtml() {
   // 模型（Blender 导出的 GLB、全景 HDR）和过场动画（AV1 视频）以 base64 内嵌，双击打开的本地文件也能直接读
   const modelDir = r('assets', 'models');
   const tags = [];
+  const videos = [];
+  let webMeta = '';
   for (const [id, file] of [['tavern', 'tavern.glb'], ['props', 'props.glb'], ['probe', 'probe.hdr']]) {
     const p = path.join(modelDir, file);
     if (fs.existsSync(p)) tags.push(`<script type="text/plain" id="asset-${id}">${fs.readFileSync(p).toString('base64')}</script>`);
@@ -162,11 +165,22 @@ async function buildHtml() {
   const csMeta = path.join(csDir, 'cutscenes.json');
   if (fs.existsSync(csMeta)) {
     const cs = JSON.parse(fs.readFileSync(csMeta, 'utf8'));
-    for (const name of Object.keys(cs.clips)) tags.push(`<script type="text/plain" id="asset-cs-${name}">${fs.readFileSync(path.join(csDir, name + '.mp4')).toString('base64')}</script>`);
-    tags.push(`<script type="application/json" id="asset-cutscenes-meta">${JSON.stringify(cs)}</script>`);
+    for (const name of Object.keys(cs.clips)) videos.push(`<script type="text/plain" id="asset-cs-${name}">${fs.readFileSync(path.join(csDir, name + '.mp4')).toString('base64')}</script>`);
+    videos.push(`<script type="application/json" id="asset-cutscenes-meta">${JSON.stringify(cs)}</script>`);
+    webMeta = `<script type="application/json" id="asset-cutscenes-meta">${JSON.stringify({ ...cs, external: true })}</script>`;
   }
-  html = html.replace('<div id="app"></div>', () => tags.join('\n') + '\n<div id="app"></div>');
-  fs.writeFileSync(outFile, html);
+  // 素材之间夹一小段脚本更新进度条：下载到哪、进度条就走到哪
+  const pack = (list) => {
+    const total = list.reduce((a, t) => a + t.length, 0);
+    let sum = 0;
+    return list.map((t) => {
+      sum += t.length;
+      return t.length > 150000 ? t + `<script>__boot(${(sum / total).toFixed(3)})</script>` : t;
+    }).join('\n');
+  };
+  const page = (list) => html.replace('<div id="app"></div>', () => pack(list) + '\n<div id="app"></div>');
+  fs.writeFileSync(outFile, page([...tags, ...videos]));
+  fs.writeFileSync(webFile, page(webMeta ? [...tags, webMeta] : tags));
 }
 
 await buildHtml();
@@ -179,4 +193,4 @@ if (!thumbsOk) {
 const oldFile = r('骰子酒馆.html');
 if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
 fs.writeFileSync(r('亨利广场.html'), fs.readFileSync(r('index.html'), 'utf8'));
-console.log('built', outFile, (fs.statSync(outFile).size / 1024 / 1024).toFixed(2) + ' MB');
+console.log('built', outFile, (fs.statSync(outFile).size / 1024 / 1024).toFixed(2) + ' MB;', path.basename(webFile), (fs.statSync(webFile).size / 1024 / 1024).toFixed(2) + ' MB');

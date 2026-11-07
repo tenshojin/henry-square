@@ -12,11 +12,7 @@ import { LITE } from './device.js';
 
 const LIVE_FADE = 0.4; // 视频和实时画面互相切换的淡化时长（秒）
 const IDLE_FADE = 0.3; // 从坐着的循环切出去：循环里人可能正偏着头，淡化得比普通接缝长一点
-// 人物在视频里发出的声音：[秒, 方法, ...参数]（对着画面估的时间；离开往哪边走、从哪边进来决定声像）
-const SIDE = { elder: 1, drinker: -1, dicer: 1, barmaid: -1 };
-const LEAVE_SOUNDS = (s) => [[0.95, 'chairScrape', 0.55, 0, 0.11], [1.85, 'footstep', 0.25 * s, 0.05], [2.3, 'footstep', 0.5 * s, 0.045], [2.75, 'footstep', 0.7 * s, 0.035]];
-const ARRIVE_SOUNDS = (s) => [[0.45, 'footstep', -0.7 * s, 0.035], [0.85, 'footstep', -0.45 * s, 0.045], [1.25, 'footstep', -0.2 * s, 0.05], [1.5, 'chairScrape', 0.5, 0, 0.1], [2.85, 'chairScrape', 0.35, 0, 0.08]];
-
+const SETTLE_RATE = 3; // 切走之前把人“放回”坐姿时的快放倍数
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 // 视频真正画出一帧（不支持 requestVideoFrameCallback 的浏览器退回下一帧动画；最多等 0.15 秒）
 const presented = (el) =>
@@ -208,10 +204,9 @@ export class Cutscenes {
     await this.until(this.xf, token);
   }
 
+  // 人物在视频里发出的声音（起身、脚步、放杯子……）：写在 cutscenes.json 每一段的 sfx 里，[秒, 方法, ...参数]，时间对着 H3 同步生成的音轨定的
   setEvents(name) {
-    const opp = name.replace(/^(leave|arrive)_/, '');
-    this.events = name.startsWith('leave_') ? LEAVE_SOUNDS(SIDE[opp]) : name.startsWith('arrive_') ? ARRIVE_SOUNDS(SIDE[opp]) : [];
-    this.events = this.events.map((e) => e.slice());
+    this.events = (this.meta.clips[name]?.sfx || []).map((e) => e.slice());
     this.evClip = name;
   }
 
@@ -308,6 +303,31 @@ export class Cutscenes {
     }
   }
 
+  // 要切走的时候人可能正偏着头、手抬到一半：先把这一段快放到人回到坐姿（cutscenes.json 的 rest 时段），淡化时才不会有重影
+  async settle(token) {
+    const el = this.cur;
+    const rest = el && this.meta.clips[el.dataset.clip]?.rest;
+    if (!rest || el.paused || document.hidden) return;
+    const t = el.currentTime;
+    if (rest.some(([a, b]) => t >= a && t <= b)) return;
+    const next = rest.find(([a]) => a > t);
+    if (!next) return;
+    el.playbackRate = SETTLE_RATE;
+    try {
+      await new Promise((resolve, reject) => {
+        const limit = performance.now() + ((next[0] - t) / SETTLE_RATE) * 1000 + 400;
+        const check = () => {
+          if (this.destroyed || token !== this.token) return reject(new Cancelled());
+          if (el.currentTime >= next[0] || el.currentTime < t || el.ended || performance.now() > limit) return resolve();
+          requestAnimationFrame(check);
+        };
+        check();
+      });
+    } finally {
+      el.playbackRate = 1;
+    }
+  }
+
   // 跳过开场：直接到某人坐着的循环（调用方先把画面淡出到黑）
   async jumpTo(opp) {
     this.stopAct();
@@ -335,6 +355,7 @@ export class Cutscenes {
     const token = this.token;
     try {
       while (this.want !== this.opp) {
+        await this.settle(token);
         await this.play('leave_' + this.opp, 'arrive_' + this.want, token, IDLE_FADE);
         const y = this.want;
         this.opp = y;
@@ -356,6 +377,7 @@ export class Cutscenes {
     while (this.swapping) await this.swapping;
     this.stopAct();
     const token = this.token;
+    await this.settle(token);
     await this.cut('tilt_down_' + this.opp, { token, fade: IDLE_FADE });
     await this.until(0, token);
     beforeLive();

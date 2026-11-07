@@ -1,10 +1,10 @@
 {
- "fps": 32,
+ "fps": 48,
  "size": [
   1280,
   640
  ],
- "xf": 6,
+ "xf": 9,
  "codec": "video/mp4; codecs=\"av01.0.08M.10\"",
  "clips": {
   "intro": {
@@ -12,100 +12,513 @@
    "dur": 12.229
   },
   "act_barmaid": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 247,
+   "dur": 5.146,
+   "rest": [
+    [
+     0.0,
+     0.44
+    ],
+    [
+     3.52,
+     5.12
+    ]
+   ]
   },
   "act_dicer": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 247,
+   "dur": 5.146,
+   "rest": [
+    [
+     0.0,
+     0.38
+    ],
+    [
+     3.75,
+     5.12
+    ]
+   ],
+   "sfx": [
+    [
+     2.9,
+     "dieHit",
+     1.2,
+     "hard",
+     "floor",
+     0
+    ]
+   ]
   },
   "act_drinker": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 247,
+   "dur": 5.146,
+   "rest": [
+    [
+     0.0,
+     0.29
+    ],
+    [
+     3.81,
+     5.12
+    ]
+   ],
+   "sfx": [
+    [
+     2.1,
+     "gulp",
+     false
+    ],
+    [
+     3.92,
+     "cupDown",
+     0,
+     0.45
+    ]
+   ]
   },
   "act_elder": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 247,
+   "dur": 5.146,
+   "rest": [
+    [
+     0.0,
+     0.48
+    ],
+    [
+     3.88,
+     5.12
+    ]
+   ]
   },
   "arrive_barmaid": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.3,
+     "footstep",
+     -0.8,
+     0.03
+    ],
+    [
+     1.0,
+     "footstep",
+     -0.6,
+     0.04
+    ],
+    [
+     1.66,
+     "footstep",
+     -0.4,
+     0.045
+    ],
+    [
+     2.62,
+     "chairScrape",
+     0.3,
+     -0.1,
+     0.07
+    ],
+    [
+     4.0,
+     "chairScrape",
+     0.35,
+     0,
+     0.08
+    ]
+   ]
   },
   "arrive_dicer": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 234,
+   "dur": 4.875,
+   "sfx": [
+    [
+     0.58,
+     "footstep",
+     -0.8,
+     0.03
+    ],
+    [
+     1.36,
+     "footstep",
+     -0.6,
+     0.04
+    ],
+    [
+     2.06,
+     "footstep",
+     -0.4,
+     0.05
+    ],
+    [
+     3.04,
+     "chairScrape",
+     0.3,
+     -0.1,
+     0.08
+    ],
+    [
+     4.04,
+     "chairScrape",
+     0.4,
+     0,
+     0.09
+    ]
+   ]
   },
   "arrive_drinker": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.26,
+     "footstep",
+     -0.8,
+     0.03
+    ],
+    [
+     1.02,
+     "footstep",
+     -0.6,
+     0.04
+    ],
+    [
+     1.74,
+     "footstep",
+     -0.4,
+     0.05
+    ],
+    [
+     2.64,
+     "chairScrape",
+     0.3,
+     -0.1,
+     0.08
+    ],
+    [
+     3.7,
+     "chairScrape",
+     0.45,
+     0,
+     0.09
+    ]
+   ]
   },
   "arrive_elder": {
-   "frames": 161,
-   "dur": 5.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.26,
+     "footstep",
+     -0.8,
+     0.03
+    ],
+    [
+     1.02,
+     "footstep",
+     -0.6,
+     0.04
+    ],
+    [
+     1.72,
+     "footstep",
+     -0.4,
+     0.05
+    ],
+    [
+     2.64,
+     "chairScrape",
+     0.3,
+     -0.1,
+     0.08
+    ],
+    [
+     3.7,
+     "chairScrape",
+     0.4,
+     0,
+     0.09
+    ]
+   ]
   },
   "idle_barmaid": {
-   "frames": 155,
-   "dur": 4.844
+   "frames": 374,
+   "dur": 7.792,
+   "rest": [
+    [
+     0.0,
+     1.0
+    ],
+    [
+     5.69,
+     7.77
+    ]
+   ]
   },
   "idle_dicer": {
-   "frames": 155,
-   "dur": 4.844
+   "frames": 374,
+   "dur": 7.792,
+   "rest": [
+    [
+     0.0,
+     1.12
+    ],
+    [
+     5.67,
+     7.77
+    ]
+   ]
   },
   "idle_drinker": {
-   "frames": 155,
-   "dur": 4.844
+   "frames": 374,
+   "dur": 7.792,
+   "rest": [
+    [
+     0.0,
+     1.23
+    ],
+    [
+     6.08,
+     7.77
+    ]
+   ]
   },
   "idle_elder": {
-   "frames": 155,
-   "dur": 4.844
+   "frames": 374,
+   "dur": 7.792,
+   "rest": [
+    [
+     0.0,
+     1.5
+    ],
+    [
+     5.81,
+     7.77
+    ]
+   ]
   },
   "leave_barmaid": {
-   "frames": 129,
-   "dur": 4.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.82,
+     "chairScrape",
+     0.5,
+     0,
+     0.1
+    ],
+    [
+     1.74,
+     "footstep",
+     0.15,
+     0.045
+    ],
+    [
+     2.38,
+     "footstep",
+     0.3,
+     0.045
+    ],
+    [
+     2.96,
+     "footstep",
+     0.45,
+     0.04
+    ],
+    [
+     3.52,
+     "footstep",
+     0.6,
+     0.035
+    ],
+    [
+     4.14,
+     "footstep",
+     0.75,
+     0.03
+    ],
+    [
+     4.52,
+     "footstep",
+     0.85,
+     0.02
+    ]
+   ]
   },
   "leave_dicer": {
-   "frames": 129,
-   "dur": 4.031
+   "frames": 234,
+   "dur": 4.875,
+   "sfx": [
+    [
+     0.8,
+     "chairScrape",
+     0.6,
+     0,
+     0.11
+    ],
+    [
+     1.75,
+     "footstep",
+     0.1,
+     0.05
+    ],
+    [
+     2.54,
+     "footstep",
+     0.3,
+     0.05
+    ],
+    [
+     3.18,
+     "footstep",
+     0.5,
+     0.045
+    ],
+    [
+     3.78,
+     "footstep",
+     0.65,
+     0.04
+    ],
+    [
+     4.44,
+     "footstep",
+     0.8,
+     0.03
+    ],
+    [
+     4.84,
+     "footstep",
+     0.9,
+     0.02
+    ]
+   ]
   },
   "leave_drinker": {
-   "frames": 129,
-   "dur": 4.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.8,
+     "chairScrape",
+     0.55,
+     0,
+     0.11
+    ],
+    [
+     1.76,
+     "footstep",
+     0.15,
+     0.05
+    ],
+    [
+     2.72,
+     "footstep",
+     0.35,
+     0.05
+    ],
+    [
+     3.4,
+     "footstep",
+     0.55,
+     0.04
+    ],
+    [
+     4.14,
+     "footstep",
+     0.75,
+     0.03
+    ],
+    [
+     4.57,
+     "footstep",
+     0.85,
+     0.02
+    ]
+   ]
   },
   "leave_elder": {
-   "frames": 129,
-   "dur": 4.031
+   "frames": 229,
+   "dur": 4.771,
+   "sfx": [
+    [
+     0.62,
+     "chairScrape",
+     0.5,
+     0,
+     0.11
+    ],
+    [
+     1.54,
+     "footstep",
+     0.1,
+     0.05
+    ],
+    [
+     2.32,
+     "footstep",
+     0.3,
+     0.05
+    ],
+    [
+     2.92,
+     "footstep",
+     0.45,
+     0.045
+    ],
+    [
+     3.52,
+     "footstep",
+     0.6,
+     0.04
+    ],
+    [
+     4.14,
+     "footstep",
+     0.75,
+     0.03
+    ],
+    [
+     4.57,
+     "footstep",
+     0.85,
+     0.02
+    ]
+   ]
   },
   "tilt_down_barmaid": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_down_dicer": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_down_drinker": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_down_elder": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_up_barmaid": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_up_dicer": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_up_drinker": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   },
   "tilt_up_elder": {
-   "frames": 97,
-   "dur": 3.031
+   "frames": 200,
+   "dur": 4.167
   }
  }
 }

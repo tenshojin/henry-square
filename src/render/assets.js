@@ -1,4 +1,5 @@
 // 内嵌资源：打包时把 GLB / HDR 以 base64 放进 <script type="text/plain" id="asset-名字">，这里读出来
+import { TextureLoader } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
@@ -9,7 +10,14 @@ export async function assetBuffer(name) {
   if (cache.has(name)) return cache.get(name);
   const el = document.getElementById('asset-' + name);
   if (!el) throw new Error('missing asset ' + name);
-  const p = fetch('data:application/octet-stream;base64,' + el.textContent.trim()).then((r) => r.arrayBuffer());
+  const text = el.textContent.trim();
+  // 有的页面（比如 Artifact 的沙盒）不让 fetch data: 地址，就自己解
+  const p = fetch('data:application/octet-stream;base64,' + text).then((r) => r.arrayBuffer()).catch(() => {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  });
   cache.set(name, p);
   const buf = await p;
   el.textContent = '';
@@ -52,6 +60,16 @@ export async function loadGLB(name, { drop } = {}) {
     await MeshoptDecoder.ready;
     loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
+    // GLB 里的贴图默认用 fetch 读 blob: 地址，沙盒页面不让：换成 <img> 的方式读
+    const url = URL.createObjectURL(new Blob(['x']));
+    const canFetch = await fetch(url).then(() => true, () => false);
+    URL.revokeObjectURL(url);
+    if (!canFetch) {
+      loader.register((parser) => {
+        parser.textureLoader = new TextureLoader(parser.options.manager);
+        return { name: 'plain-image-textures' };
+      });
+    }
   }
   let buf = await assetBuffer(name);
   if (drop) buf = pruneGLB(buf, drop);

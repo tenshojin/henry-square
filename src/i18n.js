@@ -363,7 +363,7 @@ try {
 }
 const listeners = new Set();
 
-export const VERSION = 'v5.0';
+export const VERSION = 'v6.0';
 
 export const i18n = {
   get lang() {

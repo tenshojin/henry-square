@@ -5,11 +5,13 @@
 #   收尾：最后几秒校色、微调位置，最后一小段渐变成待机片的第一帧，接待机时一点不跳
 #   开头：第一帧多停 HOLD 秒，开场页的标题淡出的时候门还没动
 # 用法：python finish_intro.py 成片.mp4 工作目录 [游戏素材目录(assets/cutscenes)]
-import json, os, shutil, subprocess, sys
+import ctypes, json, os, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 import interp
 
+if os.name == 'nt':  # 压视频很吃 CPU：调成低优先级，同时开着别的任务时让着它们
+    ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)
 SRC, WORK = sys.argv[1], sys.argv[2]
 GAME = sys.argv[3] if len(sys.argv) > 3 else None
 FFMPEG = r'D:\tools\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe'
@@ -137,14 +139,14 @@ if GAME:
     seq = os.path.join(out, '%05d.png')
     mp4 = os.path.join(GAME, 'intro.mp4')
     subprocess.run([FFMPEG, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', seq,
-                    '-c:v', 'libsvtav1', '-preset', '4', '-crf', str(CRF), '-pix_fmt', 'yuv420p10le',
-                    '-svtav1-params', 'color-primaries=1:transfer-characteristics=1:matrix-coefficients=1:color-range=0',
+                    '-c:v', 'libsvtav1', '-preset', '4', '-crf', str(CRF), '-pix_fmt', 'yuv420p10le', '-g', '999',
+                    '-svtav1-params', 'scd=0:color-primaries=1:transfer-characteristics=1:matrix-coefficients=1:color-range=0',
                     '-vf', 'scale=out_color_matrix=bt709:out_range=tv'] + BT709 + ['-color_range', 'tv', '-movflags', '+faststart', mp4],
                    check=True, stderr=subprocess.DEVNULL)
     print('av1 intro', round(os.path.getsize(mp4) / 1e3), 'KB', flush=True)
     os.makedirs(os.path.join(GAME, 'h264'), exist_ok=True)
     subprocess.run([FFMPEG, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', seq,
-                    '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
+                    '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-g', '999', '-keyint_min', '999', '-sc_threshold', '0',
                     '-vf', 'scale=960:480:out_color_matrix=bt709'] + BT709 + ['-movflags', '+faststart', '-an', os.path.join(GAME, 'h264', 'intro.mp4')], check=True)
     meta_path = os.path.join(GAME, 'cutscenes.json')
     meta = json.load(open(meta_path, encoding='utf8'))

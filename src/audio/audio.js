@@ -326,12 +326,13 @@ export class AudioEngine {
     this.ping({ freq: 118, dur: 0.11, gain: 0.16 * gain, pan });
     this.burst({ t: 0.012, freq: 900, q: 1.2, gain: 0.05 * gain, dur: 0.03, pan });
   }
-  // 喝一口酒：两下吞咽，末了杯子放回桌上
-  gulp() {
+  // 喝一口酒：两下吞咽，末了杯子放回桌上（放杯子的时刻另有安排时 cup 传 false）
+  gulp(cup = true) {
     for (const t of [0, 0.3, 0.58]) {
       this.ping({ t, freq: rand(190, 240), dur: 0.1, gain: 0.1 });
       this.burst({ t, freq: 520, q: 2, gain: 0.05, dur: 0.07, type: 'lowpass' });
     }
+    if (!cup) return;
     this.burst({ t: 0.95, freq: 1500, q: 2, gain: 0.05, dur: 0.05 });
     this.ping({ t: 0.95, freq: 2100, dur: 0.16, gain: 0.03, type: 'triangle' });
   }

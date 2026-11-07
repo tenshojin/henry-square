@@ -1,4 +1,4 @@
-# 补帧：AI 生成的片段是 16 帧/秒，用 RIFE 4.9 在每两帧中间补一帧，变成 32 帧/秒（人走路、镜头移动更顺）。
+# 补帧：AI 生成的片段帧率低，用 RIFE 4.9 补帧（Wan 16 → 32 帧/秒，H3 和开场片 24 → 48 帧/秒），人走路、镜头移动更顺。
 # RIFE 的网络结构借用 ComfyUI-Frame-Interpolation 的代码（D:\tools\vfi），模型 D:\tools\vfi_models\rife49.pth。
 # 用法：python interp.py 输入帧目录 输出帧目录 [cpu]
 import os, sys, types
@@ -50,6 +50,34 @@ def interp_dir(src, dst, device='cuda', net=None):
         prev = cur
     save(prev, os.path.join(dst, '%05d.png' % k))
     return k + 1
+
+
+@torch.inference_mode()
+def warp_dir(src, dst, times, device='cuda', net=None):
+    """src 的帧 → dst：第 j 帧取 src 的第 times[j] 帧，可以是小数（RIFE 直接算那个时刻，顺便变速）。"""
+    net = net or load_net(device)
+    names = sorted(f for f in os.listdir(src) if f.endswith('.png'))
+    os.makedirs(dst, exist_ok=True)
+    cache = {}
+
+    def get(i):
+        if i not in cache:
+            if len(cache) > 2:
+                del cache[min(cache)]
+            cache[i] = to_t(os.path.join(src, names[i]), device)
+        return cache[i]
+
+    for j, t in enumerate(times):
+        i = int(t)
+        x = t - i
+        if x < 0.01:
+            out = get(i)
+        elif x > 0.99:
+            out = get(i + 1)
+        else:
+            out = net(get(i), get(i + 1), timestep=x, scale_list=[8, 4, 2, 1], training=False, fastmode=True, ensemble=True)
+        save(out, os.path.join(dst, '%05d.png' % j))
+    return len(times)
 
 
 if __name__ == '__main__':

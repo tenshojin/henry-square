@@ -1,5 +1,6 @@
 // 界面层（DOM）：开场、菜单、命运之骰、对局 HUD、规则、图鉴、结算
-import { i18n, VERSION } from '../i18n.js';
+import { i18n, VERSION, LANGS } from '../i18n.js';
+import { TOUCH } from '../render/device.js';
 import { DICE_BY_ID, SPECIAL_DICE, NORMAL_ID, dieName, dieHint } from '../data/dice.js';
 import { iconSVG } from './icon.js';
 import { groschenIcons } from '../render/groschen.js';
@@ -15,6 +16,7 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.1" fill="currentColor"/><circle cx="12" cy="12" r="2.1" fill="currentColor"/><circle cx="19" cy="12" r="2.1" fill="currentColor"/></svg>',
   full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   log: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8h6M9 12h6M9 16h4" stroke="currentColor" stroke-width="2"/></svg>',
+  lang: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
   trophy: '<svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a4 4 0 0 0 3.2 3.9M17 6h3v1a4 4 0 0 1-3.2 3.9M12 14v4M8 20h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
@@ -210,9 +212,7 @@ export class UI {
         embers.appendChild(e);
       }
       this.splash.appendChild(embers);
-      const lang = el('button', 'lang-chip', t.langBtn);
-      lang.onclick = () => i18n.toggle();
-      this.splash.appendChild(lang);
+      this.splash.appendChild(this.langSwitch('lang-chip'));
       this.splash.appendChild(box);
       this.splash.appendChild(el('div', 'version', VERSION));
       if (this.loaded) this.loadingEl.classList.add('hidden');
@@ -285,8 +285,7 @@ export class UI {
       mk('book', t.codex, () => this.showCodex());
       if (this.hudState && !this.hud.classList.contains('hidden')) mk('log', t.log, () => this.showLog());
       else mk('trophy', t.records, () => this.showRecords());
-      const lb = mk(`<b>${t.langBtn}</b>`, 'Language', () => i18n.toggle());
-      lb.classList.add('lang');
+      mk('lang', t.language, () => this.showLanguages());
       mk('music', t.music, () => {
         this.audio.setMusic(!this.audio.musicOn);
         profile.music = this.audio.musicOn;
@@ -343,7 +342,7 @@ export class UI {
         const c = el('button', 'diff' + (d === sel ? ' sel' : '') + (profile.wins[d] ? ' beaten' : '') + ' d-' + d);
         c.setAttribute('aria-pressed', String(d === sel));
         c.innerHTML = `<div class="diff-icon"><svg viewBox="0 0 48 48">${EMBLEMS[DIFF_EMBLEM[d]]}</svg></div>
-          <div class="diff-text"><div class="diff-name">${info.name}</div><div class="diff-meta"><span class="pips" aria-hidden="true">${pips}</span><span>${targets[d]} ${t.score}</span></div></div>`;
+          <div class="diff-text"><div class="diff-name">${info.name}</div><div class="diff-meta"><span class="pips" aria-hidden="true">${pips}</span><span>${t.score(targets[d])}</span></div></div>`;
         c.onclick = () => {
           if (sel === d) return;
           sel = d;
@@ -533,7 +532,7 @@ export class UI {
       if (s.current === idx) pe.insertAdjacentHTML('beforeend', '<i class="p-mark"></i>');
       // 掷币定先手的提醒：先手一方的牌子上一枚小格罗申（玩家先手是头像那面，对手先手是十字那面）
       if (s.first === idx) pe.insertAdjacentHTML('beforeend', `<div class="p-first" title="${t.tossLog(idx === 0)}"><img src="${groschenIcons()[idx === 0 ? 'heads' : 'cross']}" alt=""><span>${t.firstBadge}</span></div>`);
-      const name = isAI ? `${t.opponent} · ${t.diff[s.difficulty].name}` : t.you;
+      const name = isAI ? t.diff[s.difficulty].name : t.you;
       const sub = isAI ? t.diff[s.difficulty].who : t.targetN(s.target);
       pe.insertAdjacentHTML('beforeend', `<div class="p-head"><span class="p-name">${name}</span><span class="p-sub">${sub}</span></div>
         <div class="p-score"><b data-score="${idx}">${this.shownScore[idx]}</b><span>/ ${s.target}</span></div>
@@ -678,7 +677,7 @@ export class UI {
     const t = this.t(), bust = kind === 'bust';
     const title = bust ? t.bust : t.big;
     const context = bust ? t.scoreBust(t.who(player)) : t.scoreRoll(t.who(player));
-    const number = score.toLocaleString(i18n.lang === 'zh' ? 'zh-CN' : 'en-US');
+    const number = score.toLocaleString(i18n.locale);
     this.live.textContent = `${context} · ${title} · ${number} ${t.scoreUnit}${bust ? ' · ' + t.bustSub : ''}`;
     const sparks = Array.from({ length: bust ? 7 : 14 }, (_, i) => {
       const angle = i * 2.39996;
@@ -715,7 +714,7 @@ export class UI {
     if (!text) return;
     this.barkEl.innerHTML = `<span>${text}</span>`;
     this.barkEl.classList.remove('show');
-    requestAnimationFrame(() => this.barkEl.classList.add('show'));
+    requestAnimationFrame(() => { this.barkEl.classList.add('show'); this.keepBarkClear(); });
     this.live.textContent = text;
     clearTimeout(this.barkTimer);
     this.barkTimer = setTimeout(() => this.barkEl.classList.remove('show'), ms);
@@ -728,10 +727,23 @@ export class UI {
     this.coachEl.onclick = () => this.hideCoach();
     clearTimeout(this.coachTimer);
     this.coachTimer = setTimeout(() => this.hideCoach(), ms);
+    this.keepBarkClear();
   }
   hideCoach() {
     clearTimeout(this.coachTimer);
     this.coachEl.classList.remove('show');
+    this.keepBarkClear();
+  }
+  // 对手的话和新手提示同时出现时（手机上两个在同一个高度）：气泡挪到提示下面，别叠在一起
+  keepBarkClear() {
+    const b = this.barkEl;
+    b.style.marginTop = '';
+    if (!b.classList.contains('show') || !this.coachEl.classList.contains('show')) return;
+    const c = this.coachEl.getBoundingClientRect(), r = b.getBoundingClientRect();
+    const across = Math.min(c.right, r.right) - Math.max(c.left, r.left);
+    // 大显示器上气泡整体放大了（CSS zoom），边距也会跟着乘，所以先除掉
+    const z = parseFloat(getComputedStyle(b).zoom) || 1;
+    if (across > 0 && r.top < c.bottom + 6 && r.bottom > c.top) b.style.marginTop = `${Math.ceil((c.bottom + 8 - r.top) / z)}px`;
   }
 
   // 解锁成就：左上角落下一枚火漆
@@ -895,8 +907,43 @@ export class UI {
       tbl.innerHTML = t.rulesBody.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('');
       body.appendChild(tbl);
       const ul = el('ul', 'rules-list');
-      ul.innerHTML = t.rulesText.map((x) => `<li>${x}</li>`).join('');
+      // 键盘快捷键只在电脑上说
+      ul.innerHTML = [...t.rulesText, ...(TOUCH ? [] : [t.rulesKeys])].map((x) => `<li>${x}</li>`).join('');
       body.appendChild(ul);
+    });
+  }
+  // 三种语言的按钮：每个都用那种语言自己的写法和字体
+  langSwitch(cls) {
+    const box = el('div', cls);
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', this.t().language);
+    for (const l of LANGS) {
+      const on = l.id === i18n.lang;
+      const b = el('button', on ? 'on' : '', l.name);
+      b.lang = l.html;
+      b.setAttribute('aria-pressed', String(on));
+      b.onclick = (e) => {
+        e.stopPropagation();
+        if (on) return;
+        this.audio.click();
+        i18n.set(l.id);
+      };
+      box.appendChild(b);
+    }
+    return box;
+  }
+  showLanguages() {
+    this.openModal((card, body) => {
+      card.appendChild(el('h2', 'title small', this.t().language));
+      const box = this.langSwitch('lang-list');
+      // 选好就关掉：先关窗口再换语言，免得窗口跟着重画一遍
+      box.querySelectorAll('button').forEach((b) => {
+        b.classList.add('btn');
+        if (b.classList.contains('on')) b.classList.add('primary');
+        const pick = b.onclick;
+        b.onclick = (e) => { this.closeModal(); pick(e); };
+      });
+      body.appendChild(box);
     });
   }
   showCodex() {

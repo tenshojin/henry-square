@@ -53,14 +53,15 @@ ws.onmessage = (ev) => {
 };
 await send('Page.enable');
 await send('Runtime.enable');
-await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+const dpr = steps.dpr || 1;
+await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: dpr, mobile: false });
 await send('Page.navigate', { url: steps.url });
 let recording = false;
 for (const s of steps.steps) {
   if (s.wait) await sleep(s.wait);
   if (s.record && !recording) {
     recording = true;
-    await send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: width, maxHeight: height, everyNthFrame: 1 });
+    await send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: width * dpr, maxHeight: height * dpr, everyNthFrame: 1 });
   }
   if (s.eval) {
     const res = await send('Runtime.evaluate', { expression: s.eval, awaitPromise: true, returnByValue: true });

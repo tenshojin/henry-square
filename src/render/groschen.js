@@ -137,12 +137,13 @@ function coinStudio() {
 const WARM = '#ece0cc';
 export async function loadGroschen(renderer) {
   if (mats) return mats;
-  let envMap = null;
-  if (renderer) {
+  const bakeEnv = () => {
     const pm = new THREE.PMREMGenerator(renderer);
-    envMap = pm.fromScene(coinStudio(), 0.03).texture;
+    const env = pm.fromScene(coinStudio(), 0.03).texture;
     pm.dispose();
-  }
+    return env;
+  };
+  const envMap = renderer ? bakeEnv() : null;
   const face = async (side) => {
     const [map, normalMap, orm] = await Promise.all([texFrom(side + '_color', true), texFrom(side + '_normal', false), texFrom(side + '_orm', false)]);
     return new THREE.MeshStandardMaterial({
@@ -169,6 +170,11 @@ export async function loadGroschen(renderer) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(1.45));');
     };
   }
+  // 手机锁屏回来显卡内容丢了：反射贴图要重算，不然钱币全是黑的
+  renderer?.domElement.addEventListener('webglcontextrestored', () => {
+    const env = bakeEnv();
+    for (const m of [...mats, ...[...metals.values()].flat()]) m.envMap = env;
+  });
   for (const [name, spec] of Object.entries(COIN_METALS)) {
     metals.set(name, mats.map((base, i) => {
       const m = base.clone();

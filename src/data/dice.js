@@ -1,6 +1,8 @@
 // 骰子数据：出目概率（出1~出6，单位%）、得分率、模糊提示、外观风格
 // 概率来自用户提供的数据表；带*的普通骰子与普通骰子相同，不进入特殊骰子池。
 
+import { JA } from '../lang/ja.js';
+
 export const NORMAL_ID = 'normal';
 
 // style 字段由 render/diceFaces.js 解释
@@ -26,7 +28,7 @@ export const DICE = [
     style: S({ base: 'pastry', c1: '#dca95a', c2: '#a5662a', pip: 'berry', pipColor: '#7a1530', overlay: ['crumbs'], geo: { r: 0.24 }, mat: { roughness: 0.85 } }),
   },
   {
-    id: 'friar', zh: '修士的骰子', en: "Friar's Die",
+    id: 'friar', zh: '修士的骰子', en: "Friar’s Die",
     p: [40, 40, 5, 5, 5, 5], rate: 45.0,
     hintZh: '修道院里流出来的木骰子，多半出 1 或 2。', hintEn: 'A wooden die from a monastery. Mostly lands on 1 or 2.',
     style: S({ base: 'wood', c1: '#6e4b2e', c2: '#45301d', pip: 'cross', pipColor: '#ecdcb2', special: { 1: 'cross' }, geo: { r: 0.12 }, mat: { roughness: 0.7 } }),
@@ -44,13 +46,13 @@ export const DICE = [
     style: S({ base: 'lacquer', c1: '#22643e', c2: '#123d25', pip: 'dot', pipColor: '#e6c766', pipMetal: true, trim: '#d4b25a', special: { 1: 'clover' }, geo: { r: 0.13 }, mat: { roughness: 0.25, clearcoat: 0.9 } }),
   },
   {
-    id: 'aranka', zh: '阿兰卡的骰子', en: "Aranka's Die",
+    id: 'aranka', zh: '阿兰卡的骰子', en: "Aranka’s Die",
     p: [28.6, 4.8, 28.6, 4.8, 28.6, 4.8], rate: 57.2,
-    hintZh: '画满小花的姑娘骰子，几乎只出奇数：1、3、5。', hintEn: "A maiden's die painted with flowers. Lands almost only on odd numbers: 1, 3, 5.",
+    hintZh: '画满小花的姑娘骰子，几乎只出奇数：1、3、5。', hintEn: "A maiden’s die painted with flowers. Lands almost only on odd numbers: 1, 3, 5.",
     style: S({ base: 'painted', c1: '#f3e6d2', c2: '#d9c3a3', pip: 'dot', pipColor: '#b02b4a', trim: '#b02b4a', overlay: ['flowers'], geo: { r: 0.14 }, mat: { roughness: 0.45, clearcoat: 0.3 } }),
   },
   {
-    id: 'tengri', zh: '腾格里骰子', en: "Tengri's Die",
+    id: 'tengri', zh: '腾格里骰子', en: "Tengri’s Die",
     p: [28.6, 14.3, 14.3, 14.3, 14.3, 14.3], rate: 42.9,
     hintZh: '草原上供奉长生天的蓝骰子，稍微偏向 1。', hintEn: 'A sky-blue die of the steppe god. Slightly favours 1.',
     style: S({ base: 'lacquer', c1: '#2f64a6', c2: '#1b3c6b', pip: 'dot', pipColor: '#f0d27a', pipMetal: true, trim: '#e0c069', special: { 1: 'sun' }, overlay: ['runes'], geo: { r: 0.12 }, mat: { roughness: 0.3, clearcoat: 0.7 } }),
@@ -58,7 +60,7 @@ export const DICE = [
   {
     id: 'lucky', zh: '幸运骰子', en: 'Lucky Die',
     p: [27.3, 4.6, 9.1, 13.6, 18.2, 27.3], rate: 45.5,
-    hintZh: '刻着马蹄铁。点数越大越常见，1 也常出，2 很少。', hintEn: 'Carved with a horseshoe. Higher faces are more common, 1 shows often, 2 rarely.',
+    hintZh: '刻着马蹄铁。点数越大越常见，1 也常出，2 很少。', hintEn: 'Carved with a horseshoe. Higher faces come up more often; 1 is common too, 2 is rare.',
     style: S({ base: 'bone', c1: '#f0e7d3', c2: '#cdb894', pip: 'dot', pipColor: '#a3171d', special: { 1: 'horseshoe' }, geo: { r: 0.13 }, mat: { roughness: 0.5 } }),
   },
   {
@@ -68,7 +70,7 @@ export const DICE = [
     style: S({ base: 'bone', c1: '#ece4d1', c2: '#c8b48f', pip: 'dot', pipColor: '#231a12', pipColors: { 1: '#b3261e', 3: '#b3261e', 5: '#b3261e' }, faceTint: { 1: '#f0d0c4', 3: '#f0d0c4', 5: '#f0d0c4' }, geo: { r: 0.13 }, mat: { roughness: 0.5 } }),
   },
   {
-    id: 'greaser', zh: '悲伤格雷泽的骰子', en: "Sad Greaser's Die",
+    id: 'greaser', zh: '悲伤格雷泽的骰子', en: "Sad Greaser’s Die",
     p: [26.1, 26.1, 4.4, 4.4, 26.1, 13.0], rate: 52.2,
     hintZh: '油乎乎、愁眉苦脸。常出 1、2、5，很少出 3 和 4。', hintEn: 'Greasy and gloomy. Often 1, 2 or 5; rarely 3 or 4.',
     style: S({ base: 'grime', c1: '#6e5a3c', c2: '#3d2f1d', pip: 'dot', pipColor: '#1a120a', special: { 1: 'sadface' }, geo: { r: 0.14 }, mat: { roughness: 0.3, clearcoat: 0.5 } }),
@@ -92,7 +94,7 @@ export const DICE = [
     style: S({ base: 'wood', c1: '#9c7c54', c2: '#6c5034', pip: 'dot', pipColor: '#2b1c10', geo: { r: 0.12, distort: 0.075 }, mat: { roughness: 0.8 } }),
   },
   {
-    id: 'cheater', zh: '谨慎骗子的骰子', en: "Cautious Cheater's Die",
+    id: 'cheater', zh: '谨慎骗子的骰子', en: "Cautious Cheater’s Die",
     p: [23.8, 14.3, 9.5, 14.3, 23.8, 14.3], rate: 47.6,
     hintZh: '看上去和普通骰子一模一样，却不动声色地偏向 1 和 5。', hintEn: 'Looks just like a common die, yet quietly favours 1 and 5.',
     style: S({ base: 'bone', c1: '#e7dcc3', c2: '#c4ae86', pip: 'dot', pipColor: '#2a1d14', marks: [1, 5], overlay: ['scratches'], geo: { r: 0.13 }, mat: { roughness: 0.55 } }),
@@ -116,7 +118,7 @@ export const DICE = [
     style: S({ base: 'lacquer', c1: '#a01c1c', c2: '#5e0d0d', pip: 'dot', pipColor: '#f0c75e', pipMetal: true, trim: '#1a0b0b', geo: { r: 0.13 }, mat: { roughness: 0.15, clearcoat: 1 } }),
   },
   {
-    id: 'antiochus', zh: '圣安提阿克斯的骰子', en: "St. Antiochus' Die",
+    id: 'antiochus', zh: '圣安提阿克斯的骰子', en: 'St. Antiochus’ Die',
     p: [20, 6.7, 40, 6.7, 6.7, 20], rate: 26.7,
     hintZh: '银质圣物匣般的骰子。常出 3，1 和 6 也不少。', hintEn: 'Silver like a reliquary. Often a 3; 1 and 6 show up as well.',
     style: S({ base: 'metal', c1: '#cfd2d7', c2: '#8a8f97', pip: 'dot', pipColor: '#2a2420', special: { 1: 'halo' }, overlay: ['engrave'], geo: { r: 0.1, corners: 'gold' }, mat: { metalness: 0.9, roughness: 0.28 } }),
@@ -134,13 +136,13 @@ export const DICE = [
     style: S({ base: 'wood', c1: '#bb8c3e', c2: '#7b5822', pip: 'dot', pipColor: '#3a2610', overlay: ['smear'], geo: { r: 0.14 }, mat: { roughness: 0.12, clearcoat: 1 } }),
   },
   {
-    id: 'devil', zh: '魔鬼骰子', en: "Devil's Die",
+    id: 'devil', zh: '魔鬼骰子', en: "Devil’s Die",
     p: [16.7, 16.7, 16.7, 16.7, 16.7, 16.7], rate: 33.4, joker: true,
-    hintZh: '1 面是恶魔头像——万能面，可当任意点数，但必须与至少两枚其他骰子一起组成得分组合。', hintEn: "Its 1 is a devil's head — a wild face that becomes any number, but only in a scoring combo with at least two other dice.",
+    hintZh: '1 面是恶魔头像——万能面，可当任意点数，但必须与至少两枚其他骰子一起组成得分组合。', hintEn: "Its 1 is a devil’s head — a wild face that becomes any number, but only in a scoring combo with at least two other dice.",
     style: S({ base: 'char', c1: '#1b1214', c2: '#2e1519', pip: 'dot', pipColor: '#d0221f', pipGlow: '#ff2a1a', special: { 1: 'devil' }, trim: '#5a0f0f', geo: { r: 0.12 }, mat: { roughness: 0.4, clearcoat: 0.6 } }),
   },
   {
-    id: 'mathematician', zh: '数学家的骰子', en: "Mathematician's Die",
+    id: 'mathematician', zh: '数学家的骰子', en: "Mathematician’s Die",
     p: [16.7, 20.8, 25.0, 29.2, 4.2, 4.2], rate: 20.9,
     hintZh: '写满算式的羊皮纸骰子。偏爱 2、3、4，很少出 5 和 6。', hintEn: 'Parchment covered in sums. Favours 2, 3, 4; rarely 5 or 6.',
     style: S({ base: 'parchment', c1: '#e9dab6', c2: '#c3ab7c', pip: 'num', pipColor: '#2b2118', overlay: ['formulas'], geo: { r: 0.1 }, mat: { roughness: 0.85 } }),
@@ -164,7 +166,7 @@ export const DICE = [
     style: S({ base: 'jade', c1: '#6aa688', c2: '#2c6a4d', pip: 'dot', pipColor: '#f4f0e2', pipColors: { 1: '#c8262b', 4: '#c8262b' }, special: { 1: 'bigdot' }, geo: { r: 0.14 }, mat: { roughness: 0.2, clearcoat: 0.8 } }),
   },
   {
-    id: 'king', zh: '国王骰子', en: "King's Die",
+    id: 'king', zh: '国王骰子', en: "King’s Die",
     p: [12.5, 18.8, 21.9, 25.0, 12.5, 9.4], rate: 25.0,
     hintZh: '纯金镶红宝石，1 面是王冠。偏爱中间的 3 和 4。', hintEn: 'Gold set with rubies, a crown on its 1. Favours the middle numbers, 3 and 4.',
     style: S({ base: 'gold', c1: '#e0b64e', c2: '#9a7022', pip: 'gem', pipColor: '#b3122a', special: { 1: 'crown' }, geo: { r: 0.1 }, mat: { metalness: 1, roughness: 0.28 } }),
@@ -176,7 +178,7 @@ export const DICE = [
     style: S({ base: 'wood', c1: '#a98c63', c2: '#776043', pip: 'crude', pipColor: '#2b1d12', overlay: ['chips'], geo: { r: 0.09, distort: 0.06 }, mat: { roughness: 0.92 } }),
   },
   {
-    id: 'painter', zh: '画家骰子', en: "Painter's Die",
+    id: 'painter', zh: '画家骰子', en: "Painter’s Die",
     p: [9.1, 27.3, 18.2, 18.2, 18.2, 9.1], rate: 27.3,
     hintZh: '溅满颜料的画家骰子。很少出 1 和 6，常出 2。', hintEn: 'Splattered with paint. Rarely 1 or 6, leans toward 2.',
     variants: ['#2a52be', '#2e8b3e', '#c0392b'],
@@ -195,7 +197,7 @@ export const DICE = [
     style: S({ base: 'bone', c1: '#e6e9ec', c2: '#b9bfc6', pip: 'dot', pipColor: '#1e1e22', pipColors: { 2: '#2350a0', 4: '#2350a0', 6: '#2350a0' }, faceTint: { 2: '#cfd9ec', 4: '#cfd9ec', 6: '#cfd9ec' }, geo: { r: 0.13 }, mat: { roughness: 0.5 } }),
   },
   {
-    id: 'grozav', zh: '格罗扎夫的幸运骰子', en: "Grozav's Lucky Die",
+    id: 'grozav', zh: '格罗扎夫的幸运骰子', en: "Grozav’s Lucky Die",
     p: [6.7, 66.7, 6.7, 6.7, 6.7, 6.7], rate: 13.4,
     hintZh: '铜铸的星纹骰子，大概率出 2。', hintEn: 'Cast copper with star pips. Very likely to land on 2.',
     style: S({ base: 'copper', c1: '#bd7a3c', c2: '#7a4a22', pip: 'star', pipColor: '#f6e6b4', pipMetal: true, geo: { r: 0.11 }, mat: { metalness: 0.95, roughness: 0.35 } }),
@@ -203,11 +205,11 @@ export const DICE = [
   {
     id: 'grimy', zh: '污秽骰子', en: 'Grimy Die',
     p: [6.3, 31.3, 6.3, 6.3, 43.8, 6.3], rate: 50.1,
-    hintZh: '沾满泥垢，叫人不想碰。常出 5 和 2。', hintEn: "So caked in grime you'd rather not touch it. Often 5 or 2.",
+    hintZh: '沾满泥垢，叫人不想碰。常出 5 和 2。', hintEn: "So caked in grime you’d rather not touch it. Often 5 or 2.",
     style: S({ base: 'grime', c1: '#5f5439', c2: '#2c271a', pip: 'dot', pipColor: '#120e08', overlay: ['grime'], geo: { r: 0.12, distort: 0.02 }, mat: { roughness: 0.95 } }),
   },
   {
-    id: 'charioteer', zh: '战车御者的骰子', en: "Charioteer's Die",
+    id: 'charioteer', zh: '战车御者的骰子', en: "Charioteer’s Die",
     p: [5.6, 27.8, 33.3, 11.1, 11.1, 11.1], rate: 16.7,
     hintZh: '青铜铸成，1 面刻着车轮。偏爱 2 和 3，很少出 1。', hintEn: 'Cast bronze, a wheel on its 1. Favours 2 and 3, rarely 1.',
     style: S({ base: 'bronze', c1: '#a87c40', c2: '#6a4b24', pip: 'dot', pipColor: '#24180c', special: { 1: 'wheel' }, overlay: ['engrave'], geo: { r: 0.1 }, mat: { metalness: 0.9, roughness: 0.38 } }),
@@ -263,11 +265,14 @@ export function pickBestWeighted(n, rnd = Math.random) {
   return out;
 }
 
+// 日文的名字和说明在 lang/ja.js
 export function dieName(typeId, lang) {
   const d = DICE_BY_ID[typeId];
+  if (lang === 'ja') return JA.dice[typeId][0];
   return lang === 'en' ? d.en : d.zh;
 }
 export function dieHint(typeId, lang) {
   const d = DICE_BY_ID[typeId];
+  if (lang === 'ja') return JA.dice[typeId][1];
   return lang === 'en' ? d.hintEn : d.hintZh;
 }

@@ -1,4 +1,5 @@
 // 构建：把代码、样式、字体、语音、缩略图打包成一个可以双击打开的 HTML 文件
+import { tableOnlyGLB } from './tools/glb_table.mjs';
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,7 +59,9 @@ const voiceDir = r('assets', 'voices');
 const voices = {};
 if (fs.existsSync(voiceDir)) {
   for (const f of fs.readdirSync(voiceDir).filter((x) => x.endsWith('.wav')).sort()) {
-    voices[path.basename(f, '.wav')] = trimWav(fs.readFileSync(path.join(voiceDir, f))).toString('base64');
+    // 有压好的 MP3 就用它（tools/compress_voices.py），WAV 打进页面太大
+    const mp3 = path.join(voiceDir, path.basename(f, '.wav') + '.mp3');
+    voices[path.basename(f, '.wav')] = (fs.existsSync(mp3) ? fs.readFileSync(mp3) : trimWav(fs.readFileSync(path.join(voiceDir, f)))).toString('base64');
   }
 }
 fs.mkdirSync(r('src', 'generated'), { recursive: true });
@@ -96,24 +99,44 @@ for (const [file, w] of [['cinzel-latin-500-normal.woff2', 400], ['cinzel-latin-
   const f = font('cinzel', file, 'Henry Digits', 'normal', w);
   if (f) fontFaces.push(f.replace("format('woff2');}", "format('woff2');unicode-range:U+0030-0039;}"));
 }
-// 中文标题字体：思源宋体（可变字重），只保留游戏里用到的字，体积很小
-const cjkSource = r('tools', 'fonts', 'NotoSerifSC-VF.ttf');
-if (fs.existsSync(cjkSource)) {
+// 中文、日文字体：思源宋体（可变字重），只保留游戏里用到的字，体积很小。
+// 日文另用一份日本字形的思源宋体（同一个汉字中日写法不同，比如“直”“骨”“今”），日文的字都在 src/lang/ja.js：
+// 中文那份不收日文独有的字（假名、日本汉字），日文那份只收 ja.js 里的字。
+// 只数代码里字符串用到的字（先去掉注释），注释里的中文不进字体。
+// unicode-range 只写这几段：英文字母、数字、空格照样落到后面的拉丁字体，行高和基线跟原来一样
+const CJK_RANGE = 'U+00B7,U+2000-206F,U+2E80-9FFF,U+FF00-FFEF';
+const CJK_RE = /[· -⁯⺀-鿿＀-￯]/g;
+const codeText = async (file) => (await esbuild.transform(fs.readFileSync(file, 'utf8'), { loader: 'js', minify: true, charset: 'utf8', legalComments: 'none' })).code;
+async function cjkFace(source, family, text) {
+  if (!fs.existsSync(source)) {
+    console.warn(`缺少字体 ${source}：${family} 的字会用系统字体显示（恢复方法见 README）`);
+    return null;
+  }
   const { default: subsetFont } = await import('subset-font');
-  const texts = [];
+  const chars = new Set(text.match(CJK_RE) || []);
+  const subset = await subsetFont(fs.readFileSync(source), [...chars].join(''), { targetFormat: 'woff2' });
+  console.log(`${family}:`, chars.size, 'chars,', (subset.length / 1024).toFixed(0), 'KB');
+  return `@font-face{font-family:'${family}';font-style:normal;font-weight:200 900;font-display:swap;unicode-range:${CJK_RANGE};src:url(data:font/woff2;base64,${subset.toString('base64')}) format('woff2');}`;
+}
+{
+  const files = [];
   const walk = (dir) => {
     for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, f.name);
       if (f.isDirectory()) {
         if (f.name !== 'generated') walk(p);
-      } else if (/\.(js|html)$/.test(f.name)) texts.push(fs.readFileSync(p, 'utf8'));
+      } else if (/\.js$/.test(f.name)) files.push(p);
     }
   };
   walk(r('src'));
-  const chars = new Set(texts.join('').match(/[· -⁯⺀-鿿＀-￯]/g) || []);
-  const subset = await subsetFont(fs.readFileSync(cjkSource), [...chars].join(''), { targetFormat: 'woff2' });
-  fontFaces.push(`@font-face{font-family:'Henry Serif SC';font-style:normal;font-weight:200 900;font-display:swap;src:url(data:font/woff2;base64,${subset.toString('base64')}) format('woff2');}`);
-  console.log('cjk title font:', chars.size, 'chars,', (subset.length / 1024).toFixed(0), 'KB');
+  const jaFile = r('src', 'lang', 'ja.js');
+  const zhText = (await Promise.all(files.filter((f) => f !== jaFile).map(codeText))).join('') + fs.readFileSync(r('src', 'index.html'), 'utf8');
+  // 日文界面里也会出现的共用符号（拼接用的“·”、省略号、破折号、跳过的“›”），再加上语言按钮上的“日本語”
+  const jaText = (await codeText(jaFile)) + '·…—–›日本語';
+  for (const face of [
+    await cjkFace(r('tools', 'fonts', 'NotoSerifSC-VF.ttf'), 'Henry Serif SC', zhText),
+    await cjkFace(r('tools', 'fonts', 'NotoSerifJP-VF.ttf'), 'Henry Serif JP', jaText),
+  ]) if (face) fontFaces.push(face);
 }
 const fonts = fontFaces.join('\n');
 
@@ -133,6 +156,11 @@ async function buildHtml() {
   const css = fs.readFileSync(r('src', 'ui', 'style.css'), 'utf8');
   let html = fs.readFileSync(r('src', 'index.html'), 'utf8');
   html = html.replace('/*__FONTS__*/', () => fonts);
+  // 加载画面：脚本还没下完就要按语言显示（规则和 src/i18n.js 的 detect() 一样）
+  const { BOOT } = await import(pathToFileURL(r('src', 'i18n.js')).href + '?t=' + Date.now());
+  html = html.replace('/*__BOOT__*/', () => `(function(){var T=${JSON.stringify(BOOT)},l;try{l=localStorage.getItem('tavern-dice-lang')}catch(e){}`
+    + `if(!T[l]){l='en';var n=navigator,a=n.languages&&n.languages.length?n.languages:[n.language||''];for(var i=0;i<a.length;i++){var c=String(a[i]).slice(0,2).toLowerCase();if(T[c]){l=c;break}}}`
+    + `var t=T[l],d=document,b=d.querySelector('#boot b'),s=d.querySelector('#boot small');d.documentElement.lang=t.html;d.title=t.doc;if(b)b.textContent=t.title;if(s)s.textContent=t.text})();`);
   html = html.replace('/*__STYLE__*/', () => css);
   // 界面材质（tools/ui/make_textures.py 生成的羊皮纸、皮革、金箔）写成 CSS 变量
   const uiDir = r('assets', 'ui');
@@ -178,9 +206,13 @@ async function buildHtml() {
       return t.length > 150000 ? t + `<script>__boot(${(sum / total).toFixed(3)})</script>` : t;
     }).join('\n');
   };
-  const page = (list) => html.replace('<div id="app"></div>', () => pack(list) + '\n<div id="app"></div>');
+  const page = (list, base = html) => base.replace('<div id="app"></div>', () => pack(list) + '\n<div id="app"></div>');
   fs.writeFileSync(outFile, page([...tags, ...videos]));
-  fs.writeFileSync(webFile, page(webMeta ? [...tags, webMeta] : tags));
+  // 网页版：视频用到再下载，模型只留牌桌（tools/glb_table.mjs），比离线的单文件小一半还多
+  const tavernTag = tags.findIndex((t) => t.includes('id="asset-tavern"'));
+  const webTags = tags.slice();
+  if (tavernTag >= 0) webTags[tavernTag] = `<script type="text/plain" id="asset-tavern">${tableOnlyGLB(fs.readFileSync(path.join(modelDir, 'tavern.glb'))).toString('base64')}</script>`;
+  fs.writeFileSync(webFile, page(webMeta ? [...webTags, webMeta] : webTags, html.replace('<meta name="theme-color"', '<meta name="table-only" content="1">\n<meta name="theme-color"')));
 }
 
 await buildHtml();

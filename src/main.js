@@ -26,13 +26,38 @@ const nextFrame = () =>
     setTimeout(go, 60);
   });
 
+// 触屏设备：悬停样式手指点一下就粘住不走，去掉；长按不弹菜单，双指不缩放（iOS 不认 user-scalable=no）
+function touchTweaks() {
+  if (!matchMedia('(hover: none)').matches) return;
+  const hoverOnly = (sel) => /:hover/.test(sel.replace(/:not\(:hover\)/g, ''));
+  const strip = (list, owner) => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (r.cssRules && !r.selectorText) strip(r.cssRules, r);
+      else if (r.selectorText && hoverOnly(r.selectorText)) {
+        const keep = r.selectorText.split(',').filter((s) => !hoverOnly(s));
+        if (keep.length) r.selectorText = keep.join(',');
+        else owner.deleteRule(i);
+      }
+    }
+  };
+  for (const sheet of document.styleSheets) {
+    try { strip(sheet.cssRules, sheet); } catch (e) { /* 读不了的样式表跳过 */ }
+  }
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+}
+
 async function main() {
+  touchTweaks();
   const mark = (k) => (window.__loadTimes = window.__loadTimes || []).push([k, Math.round(performance.now())]);
-  i18n.set(i18n.lang);
+  i18n.set(i18n.lang, false);
   const audio = new AudioEngine();
   audio.musicOn = profile.music;
   audio.soundOn = profile.sound;
   document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
+  // iOS 锁屏、来电之后声音会被系统打断，只有用户再点一下才恢复得了
+  window.addEventListener('pointerdown', () => audio.resume(), { passive: true });
   const ui = new UI(document.getElementById('ui'), audio);
   let entered = false;
   let onEnter = null;

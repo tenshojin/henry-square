@@ -84,13 +84,14 @@ export class AudioEngine {
   }
 
   resume() {
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx && this.ctx.state !== 'running' && !this.hidden) this.ctx.resume()?.catch(() => {});
   }
   // 切到别的标签页：酒馆的声音跟着停，切回来接着响
   setHidden(hidden) {
+    this.hidden = hidden;
     if (!this.ctx) return;
-    if (hidden) this.ctx.suspend();
-    else this.ctx.resume();
+    if (hidden) this.ctx.suspend()?.catch(() => {});
+    else this.ctx.resume()?.catch(() => {});
   }
 
   setSound(on) {

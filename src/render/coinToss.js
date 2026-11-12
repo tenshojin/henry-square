@@ -3,7 +3,7 @@
 // 镜头推近看清朝上的面，看清结果后，金币一跳落到左侧中立区域（下一局开始或回菜单时收走）。
 // 头像朝上 = 玩家先手，十字朝上 = 对手先手。
 import * as THREE from 'three';
-import { GAME_CAM, easeInOut } from './stage.js';
+import { easeInOut } from './stage.js';
 import { TABLE_Y } from './world.js';
 import { makeGroschen, G_R, G_REST } from './groschen.js';
 import { NEUTRAL_COIN_SPOT, TOSS_SCALE } from './coinLayout.js';
@@ -191,9 +191,9 @@ export class CoinToss {
           st.camMode = 'free';
           st.gamePos(st.time, camPos).lerp(camClose, k * 0.85);
           st.camera.position.copy(camPos);
-          look.copy(GAME_CAM.look).lerp(rest, k);
+          st.gameLook(look).lerp(rest, k);
           // Keep the portrait close-up prominent, then restore the fitted table view.
-          st.camera.fov = THREE.MathUtils.lerp(st.fovFor(GAME_CAM.fov), Math.min(65, st.fovFor(GAME_CAM.fov)), k);
+          st.camera.fov = THREE.MathUtils.lerp(st.fovFor(), Math.min(65, st.fovFor()), k);
           st.camera.updateProjectionMatrix();
           st.camera.lookAt(look);
         }

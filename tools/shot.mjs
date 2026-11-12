@@ -1,6 +1,6 @@
 // 自测用：用无头 Chrome 打开游戏，按步骤执行脚本并截图（不依赖窗口是否可见）
 // 用法：node tools/shot.mjs steps.json 输出目录
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -25,6 +25,25 @@ const proc = spawn(chrome, [
   '--hide-scrollbars',
   'about:blank',
 ], { stdio: 'ignore' });
+
+// 关掉这个 Chrome（连同 GPU、渲染等子进程）并删掉它的临时配置目录。
+// 以前只 proc.kill() 主进程就删目录：子进程还占着里面的文件，删除失败又被忽略，
+// %TEMP% 里因此会积下 henry-shot-*（每个约 200 MB）。中途出错退出时也靠 exit 钩子清理。
+let chromeClosed = false;
+function closeChrome() {
+  if (chromeClosed) return;
+  chromeClosed = true;
+  if (proc.exitCode === null && proc.signalCode === null) {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    else proc.kill();
+  }
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    console.error(`临时浏览器配置没删掉：${profile}（${e.code || e.message}）`);
+  }
+}
+process.on('exit', closeChrome);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let target = null;
@@ -67,15 +86,21 @@ const send = (method, params = {}) =>
 
 await send('Page.enable');
 await send('Runtime.enable');
-await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+// touch: true 模拟手指操作的手机（媒体查询 hover:none、pointer:coarse 成立），看触屏版的文字和布局
+if (steps.touch) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: steps.dpr || 1, mobile: !!steps.touch });
 await send('Page.navigate', { url: steps.url });
 for (const s of steps.steps) {
   if (s.wait) await sleep(s.wait);
+  // size: [宽, 高] 中途换窗口大小（模拟手机转屏）
+  if (s.size) await send('Emulation.setDeviceMetricsOverride', { width: s.size[0], height: s.size[1], deviceScaleFactor: steps.dpr || 1, mobile: !!steps.touch });
   if (s.eval) {
     const res = await send('Runtime.evaluate', { expression: s.eval, awaitPromise: true, returnByValue: true });
     const v = res.result?.result?.value;
     if (res.result?.exceptionDetails) console.log('eval error:', res.result.exceptionDetails.exception?.description);
     else if (v !== undefined) console.log('eval:', JSON.stringify(v).slice(0, 600));
+    // out: 把这一步的完整结果存成文件（结果太长、控制台只显示前 600 个字时用）
+    if (s.out && v !== undefined) fs.writeFileSync(path.join(outDir, s.out), typeof v === 'string' ? v : JSON.stringify(v));
   }
   if (s.click) {
     // 真实鼠标点击（屏幕坐标）
@@ -98,10 +123,4 @@ for (const s of steps.steps) {
 }
 if (logs.length) console.log(logs.slice(-30).join('\n'));
 ws.close();
-proc.kill();
-await sleep(500);
-try {
-  fs.rmSync(profile, { recursive: true, force: true });
-} catch (e) {
-  /* 忽略 */
-}
+closeChrome();

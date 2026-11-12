@@ -1,4 +1,7 @@
-// 中英双语文本
+// 界面文字：中文、英文在这里，日文在 lang/ja.js（三种语言的键必须一一对应，tools/test_i18n.mjs 会查）
+import { TOUCH } from './render/device.js';
+import { JA } from './lang/ja.js';
+
 const STR = {
   zh: {
     title: '亨利酒馆',
@@ -6,8 +9,9 @@ const STR = {
     tagline: '所有，或者一无所有',
     enter: '推门而入',
     loading: '正在摆桌……',
+    boot: '正在推门…… 第一次打开要等一会儿',
     skip: '跳过 ›',
-    langBtn: 'EN',
+    language: '语言',
     chooseDiff: '挑选你的对手',
     menuKicker: '一席烛火 · 六枚骰子',
     fateKicker: '入座之前 · 配好你的骰子',
@@ -33,10 +37,10 @@ const STR = {
     },
     tipPick: '金色光圈标出了能计分的骰子。点它们放到一边：1 和 5 单个就算分，三个相同和顺子分更高。',
     tipPickHard: '点能计分的骰子放到一边：1 和 5 单个就算分，三个相同和顺子分更高。',
-    tipBank: '这些分还没到手。长按收分把它存进总分，或者冒险用剩下的骰子再掷：一把掷不出分，本回合全丢。',
+    tipBank: '这些分还没到手。长按「收分过手」存进总分，或者冒险用剩下的骰子再掷：要是一把掷不出分，本回合就全丢了。',
     tipBust: '爆骰！这一把没有能计分的骰子，本回合的分全丢了。贪心是要付账的。',
     tipHot: '六枚全部计分：收回六枚再掷一轮，分数接着涨！',
-    tipSpeed: '等得着急？按住空格或按住桌面，时间走快一点。',
+    tipSpeed: TOUCH ? '等得着急？按住桌面，时间走快一点。' : '等得着急？按住空格或按住桌面，时间走快一点。',
     pickBest: '选最高分',
     pickBestTip: '自动选中这一把得分最高的组合（快捷键 A）',
     more: '更多',
@@ -137,11 +141,11 @@ const STR = {
       ['单个 1', '100'],
       ['单个 5', '50'],
       ['三个 1', '1000'],
-      ['三个 2 / 3 / 4 / 5 / 6', '点数 × 100'],
-      ['四个 / 五个 / 六个相同', '三个的分数 × 2 / × 4 / × 8'],
-      ['小顺 1-2-3-4-5', '500'],
-      ['大顺 2-3-4-5-6', '750'],
-      ['全顺 1-2-3-4-5-6', '1500'],
+      ['三个 2 / 3 / 4 / 5 / 6', '点数 × 100'],
+      ['四个 / 五个 / 六个相同', '三个的分数 × 2 / × 4 / × 8'],
+      ['小顺 <span class="nw">1-2-3-4-5</span>', '500'],
+      ['大顺 <span class="nw">2-3-4-5-6</span>', '750'],
+      ['全顺 <span class="nw">1-2-3-4-5-6</span>', '1500'],
     ],
     rulesText: [
       '轮流掷骰。每次掷出后，至少要挑出一组计分骰子放到一边，且挑出的每一枚都必须参与计分。',
@@ -152,8 +156,8 @@ const STR = {
       '魔鬼骰子的恶魔面是万能面，可当任意点数，但必须和至少两枚其他骰子一起组成得分组合。',
       '天国骰子的神圣 6 面只能当作 6。',
       '先达到目标分数者获胜。',
-      '快捷键：空格掷骰、留下并再掷；按住回车收分；1–6 选骰子；A 选这一把的最高分。对手回合按住空格可以加速。',
     ],
+    rulesKeys: '快捷键：空格掷骰、留下并再掷；按住回车收分；1–6 选骰子；A 选这一把的最高分。对手回合按住空格可以加速。',
     part: (p) => {
       if (p.k === 'single') return p.v === 1 ? '单1' : '单5';
       if (p.k === 'kind') return `${['', '', '', '三', '四', '五', '六'][p.n]}个${p.v}`;
@@ -165,7 +169,7 @@ const STR = {
     codexHint: '把鼠标移到骰子上可以查看它的脾气。',
     dieOf: (name) => name,
     keptLabel: '已留',
-    score: '分',
+    score: (n) => `${n} 分`,
     who: (i) => (i === 0 ? '你' : '对手'),
     face: (v, joker) => (joker ? '魔' : String(v)),
     logRoll: (w, vals) => `${w}掷出 ${vals}`,
@@ -177,23 +181,24 @@ const STR = {
     faceNow: (v) => `当前点数：${v}`,
   },
   en: {
-    title: "Henry's Tavern",
+    title: "Henry’s Tavern",
     titleSub: 'A TAVERN GAME OF DICE',
     tagline: 'All, or nothing.',
     enter: 'Step Inside',
     loading: 'Setting the table…',
+    boot: 'Opening the door… the first visit takes a moment',
     skip: 'Skip ›',
-    langBtn: '中文',
+    language: 'Language',
     chooseDiff: 'Choose Your Opponent',
     menuKicker: 'CANDLELIGHT · SIX DICE · ONE CHANCE',
     fateKicker: 'BEFORE THE FIRST THROW',
     yourDice: 'Your six dice',
     chooseDie: 'Which fate will you carry?',
-    swapAvailable: 'Swap available',
+    swapAvailable: 'Swappable',
     equipped: 'Equipped',
-    commonOnly: 'Keep the common die',
+    commonOnly: 'Common die only',
     fateSummary: (n) => `${n} special · ${6 - n} common. These dice stay with you for this game.`,
-    tossKicker: 'THE GOLD SOVEREIGN DECIDES',
+    tossKicker: 'A GOLD COIN DECIDES',
     beginRound: 'Let Us Play',
     start: 'Take a Seat',
     rules: 'Scoring',
@@ -204,16 +209,16 @@ const STR = {
     diff: {
       casual: { name: 'Casual', who: 'The barmaid on her break', desc: 'Throws for fun between rounds of ale' },
       novice: { name: 'Novice', who: 'A thirsty ranger', desc: 'Knows the rules, plays it safe' },
-      regular: { name: 'Tavern Regular', who: 'The white-bearded regular', desc: 'Calculating and merciless' },
-      king: { name: 'Dice King of Skalitz', who: 'The legend himself', desc: 'Said never to have lost a game' },
+      regular: { name: 'Regular', who: 'The white-bearded regular', desc: 'Calculating and merciless' },
+      king: { name: 'Dice King', who: 'The legend of Skalitz', desc: 'Said never to have lost a game' },
     },
-    tipPick: 'The golden rings mark dice that can score. Click them to set them aside: single 1s and 5s score, and so do triples and straights.',
-    tipPickHard: 'Click the dice that can score to set them aside: single 1s and 5s score, and so do triples and straights.',
+    tipPick: `The golden rings mark dice that can score. ${TOUCH ? 'Tap' : 'Click'} them to set them aside: single 1s and 5s score, and so do triples and straights.`,
+    tipPickHard: `${TOUCH ? 'Tap' : 'Click'} the dice that can score to set them aside: single 1s and 5s score, and so do triples and straights.`,
     tipBank: 'These points are not yours yet. Hold to bank them, or risk the remaining dice: a throw with no score loses the whole turn.',
-    tipBust: 'Bust! No die in that throw could score, so the turn is lost. Greed always pays its bill.',
+    tipBust: 'Bust! No die in that throw could score, so the turn is lost. Greed always comes with a bill.',
     tipHot: 'All six scored: take all six back and keep the score growing!',
-    tipSpeed: 'In a hurry? Hold Space or press the table to speed things up.',
-    pickBest: 'Best',
+    tipSpeed: TOUCH ? 'In a hurry? Press and hold the table to speed things up.' : 'In a hurry? Hold Space or press and hold the table to speed things up.',
+    pickBest: 'Pick Best',
     pickBestTip: 'Select the highest-scoring combo in this throw (shortcut A)',
     more: 'More',
     fullscreen: 'Fullscreen',
@@ -231,8 +236,8 @@ const STR = {
     ach: {
       firstWin: ['First Taste', 'Win your first game'],
       beatNovice: ['Under the Table', 'Beat the thirsty ranger'],
-      beatRegular: ['Old Dog Retired', 'Beat the white-bearded regular'],
-      beatKing: ['A New King', 'Beat the legend himself'],
+      beatRegular: ['Put Out to Pasture', 'Beat the white-bearded regular'],
+      beatKing: ['A New King', 'Beat the legend of Skalitz'],
       hotDice: ['Hot Dice', 'Score with all six dice'],
       bigThrow: ['King’s Ransom', 'Score 2000 or more in a single throw'],
       greed: ['Greedy Fingers', 'Bust with 1000 or more in the turn'],
@@ -244,8 +249,8 @@ const STR = {
     },
     sumBest: (n) => `Best throw ${n}`,
     sumBusts: (n) => `${n} bust${n === 1 ? '' : 's'}`,
-    sumHots: (n) => `${n} hot dice`,
-    sumTurns: (n) => `${n} turns`,
+    sumHots: (n) => `Hot dice ×${n}`,
+    sumTurns: (n) => `${n} turn${n === 1 ? '' : 's'}`,
     fateTitle: 'Dice of Fate',
     fateSub: 'Each die has an even chance of a special offer. Gold-bordered dice can be swapped. Select one to compare.',
     fateNone: 'Fate passed you by tonight — all six are common dice.',
@@ -254,7 +259,7 @@ const STR = {
     transform: 'Swap',
     normalDie: 'Common Die',
     confirm: 'So be it',
-    oppDie: "Opponent's die",
+    oppDie: "Opponent’s die",
     keySpace: 'Space',
     keyEnter: 'Enter',
     target: 'Target',
@@ -263,7 +268,7 @@ const STR = {
     turnScore: 'This turn',
     selected: 'Selected',
     invalid: 'Every selected die must score',
-    pickHint: 'Click dice to set aside a scoring combo',
+    pickHint: `${TOUCH ? 'Tap' : 'Click'} dice to set aside a scoring combo`,
     pickNameHint: 'Select a die to see its name',
     holdBank: 'Hold to Bank',
     holdHint: 'Release to cancel',
@@ -273,7 +278,7 @@ const STR = {
     rollAll: 'Keep & Roll all six',
     bank: 'Bank & Pass',
     yourTurn: 'Your Turn',
-    oppTurn: "Opponent's Turn",
+    oppTurn: "Opponent’s Turn",
     firstYou: 'Coin toss: you go first',
     firstOpp: 'Coin toss: opponent goes first',
     tossTitle: 'The Coin Toss',
@@ -281,7 +286,7 @@ const STR = {
     tossHeads: 'Heads',
     tossCross: 'Tails',
     firstYouShort: 'You go first',
-    firstOppShort: 'Your opponent goes first',
+    firstOppShort: 'Opponent goes first',
     firstBadge: 'First',
     tossLog: (you) => (you ? 'Coin toss: heads — you go first' : 'Coin toss: tails — opponent goes first'),
     bust: 'Bust!',
@@ -313,11 +318,11 @@ const STR = {
       ['Single 1', '100'],
       ['Single 5', '50'],
       ['Three 1s', '1000'],
-      ['Three 2s / 3s / 4s / 5s / 6s', 'face × 100'],
-      ['Four / five / six of a kind', 'three-of-a-kind × 2 / × 4 / × 8'],
-      ['Small straight 1-2-3-4-5', '500'],
-      ['Large straight 2-3-4-5-6', '750'],
-      ['Full straight 1-2-3-4-5-6', '1500'],
+      ['Three 2s / 3s / 4s / 5s / 6s', 'face × 100'],
+      ['Four / five / six of a kind', 'three-of-a-kind × 2 / × 4 / × 8'],
+      ['Small straight <span class="nw">1-2-3-4-5</span>', '500'],
+      ['Large straight <span class="nw">2-3-4-5-6</span>', '750'],
+      ['Full straight <span class="nw">1-2-3-4-5-6</span>', '1500'],
     ],
     rulesText: [
       'Players take turns. After each throw you must set aside at least one scoring combo, and every die you set aside must score.',
@@ -325,11 +330,11 @@ const STR = {
       'Then either Bank your turn points into your total, or Roll the remaining dice to build them higher.',
       'If a throw contains no scoring dice at all, you bust and lose every point gathered that turn.',
       'If all six dice have scored, you may pick all six up and keep rolling.',
-      "The Devil's Die face is wild: it can be any number, but only in a combo with at least two other dice.",
-      "The Heavenly Die's holy 6 always counts as a 6.",
+      'The devil face on the Devil’s Die is wild: it can be any number, but only in a combo with at least two other dice.',
+      "The Heavenly Die’s holy 6 always counts as a 6.",
       'The first to reach the target score wins.',
-      'Shortcuts: Space to roll or keep & roll; hold Enter to bank; 1–6 select dice; A selects the best combo. Hold Space to speed up the opponent.',
     ],
+    rulesKeys: 'Shortcuts: Space to roll or keep & roll; hold Enter to bank; 1–6 to select dice; A to pick the best combo. Hold Space to speed up the opponent’s turn.',
     part: (p) => {
       if (p.k === 'single') return p.v === 1 ? 'single 1' : 'single 5';
       if (p.k === 'kind') return `${['', '', '', 'three', 'four', 'five', 'six'][p.n]} ${p.v}s`;
@@ -341,7 +346,7 @@ const STR = {
     codexHint: 'Hover over a die to learn its temper.',
     dieOf: (name) => name,
     keptLabel: 'Kept',
-    score: 'pts',
+    score: (n) => `${n} pts`,
     who: (i) => (i === 0 ? 'You' : 'Opponent'),
     face: (v, joker) => (joker ? 'D' : String(v)),
     logRoll: (w, vals) => `${w} rolled ${vals}`,
@@ -352,18 +357,42 @@ const STR = {
     jokerTip: 'Devil face: wild when chosen with at least two other dice',
     faceNow: (v) => `Showing: ${v}`,
   },
+  ja: JA.ui,
 };
 
-let lang = 'zh';
-try {
-  const saved = localStorage.getItem('tavern-dice-lang');
-  if (saved === 'en' || saved === 'zh') lang = saved;
-} catch (e) {
-  /* 无法使用本地存储时用默认中文 */
-}
-const listeners = new Set();
+// 语言列表：name 用这种语言自己的写法，html 是写在 <html lang> 上的（字体、断行都看它），locale 用来排数字
+export const LANGS = [
+  { id: 'zh', name: '中文', html: 'zh-CN', locale: 'zh-CN' },
+  { id: 'en', name: 'English', html: 'en', locale: 'en-US' },
+  { id: 'ja', name: '日本語', html: 'ja', locale: 'ja-JP' },
+];
+const IDS = LANGS.map((l) => l.id);
 
-export const VERSION = 'v6.0';
+// 第一次来按浏览器的语言挑（日文浏览器看日文、中文看中文，其余看英文）；自己选过就一直用选的。
+// index.html 开头的小脚本用同样的规则先把加载画面的字换好，两边要一起改
+function detect() {
+  try {
+    const saved = localStorage.getItem('tavern-dice-lang');
+    if (IDS.includes(saved)) return saved;
+  } catch (e) {
+    /* 无法使用本地存储 */
+  }
+  const nav = globalThis.navigator;
+  for (const l of nav?.languages?.length ? nav.languages : [nav?.language || '']) {
+    const id = String(l).slice(0, 2).toLowerCase();
+    if (IDS.includes(id)) return id;
+  }
+  return 'en';
+}
+
+let lang = detect();
+const listeners = new Set();
+const docTitle = (l) => (l === 'en' ? STR.en.title : `${STR[l].title} · ${STR.en.title}`);
+
+// 加载画面用的字：打包时写进 index.html 开头的小脚本（那时游戏脚本还没下载完）
+export const BOOT = Object.fromEntries(LANGS.map((l) => [l.id, { html: l.html, title: STR[l.id].title, text: STR[l.id].boot, doc: docTitle(l.id) }]));
+
+export const VERSION = 'v6.2';
 
 export const i18n = {
   get lang() {
@@ -372,18 +401,27 @@ export const i18n = {
   get t() {
     return STR[lang];
   },
-  set(l) {
-    lang = l;
-    try {
-      localStorage.setItem('tavern-dice-lang', l);
-    } catch (e) {
-      /* ignore */
-    }
-    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
-    listeners.forEach((fn) => fn(l));
+  get locale() {
+    return LANGS.find((l) => l.id === lang).locale;
   },
-  toggle() {
-    this.set(lang === 'zh' ? 'en' : 'zh');
+  // save：玩家亲手选的才记下来；开场按浏览器语言自动挑的不记，换了浏览器语言还能跟着变
+  set(l, save = true) {
+    if (!IDS.includes(l)) l = 'en';
+    lang = l;
+    if (save) {
+      try {
+        localStorage.setItem('tavern-dice-lang', l);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    const doc = globalThis.document;
+    if (doc) {
+      doc.documentElement.lang = LANGS.find((x) => x.id === l).html;
+      doc.title = docTitle(l);
+      doc.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', STR[l].title);
+    }
+    listeners.forEach((fn) => fn(l));
   },
   onChange(fn) {
     listeners.add(fn);

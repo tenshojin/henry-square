@@ -54,6 +54,8 @@ export class Cutscenes {
       v.playsInline = true;
       v.setAttribute('muted', '');
       v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', ''); // 老的 iOS
+      v.setAttribute('x5-playsinline', ''); // 微信等腾讯内核：不然一放视频就全屏
       v.preload = 'auto';
       v.disablePictureInPicture = true;
       v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:none';
@@ -109,6 +111,22 @@ export class Cutscenes {
 
   prepare(names) {
     return Promise.all(names.map((n) => this.url(n)));
+  }
+
+  // 从网站加载时，趁空闲把接下来可能用到的片段先下到浏览器缓存里，点的时候不用等。一段一段下，不和正在放的视频抢网速
+  async warm(opp) {
+    if (!this.meta.remote || !location.protocol.startsWith('http') || navigator.connection?.saveData) return;
+    this.warmed ||= new Set();
+    const first = ['act_', 'tilt_down_', 'tilt_up_', 'leave_'].map((k) => k + opp);
+    const rest = Object.keys(this.meta.clips).filter((n) => n !== 'intro').sort((a, b) => a.startsWith('arrive_') ? -1 : b.startsWith('arrive_') ? 1 : 0);
+    const id = (this.warmId = (this.warmId || 0) + 1);
+    for (const name of [...first, ...rest]) {
+      if (this.destroyed || id !== this.warmId) return;
+      if (this.warmed.has(name)) continue;
+      this.warmed.add(name);
+      try { await (await fetch(this.meta.remote + name + '.mp4', { cache: 'force-cache' })).arrayBuffer(); }
+      catch (e) { return; }
+    }
   }
 
   spare() {
@@ -180,6 +198,7 @@ export class Cutscenes {
     return new Promise((resolve, reject) => {
       let lastTime = el?.currentTime;
       let progressAt = performance.now();
+      let nudged = false;
       let lastCheck = progressAt;
       const check = () => {
         if (this.destroyed || token !== this.token) return reject(new Cancelled());
@@ -189,7 +208,15 @@ export class Cutscenes {
         if (document.hidden || now - lastCheck > 2000 || el.currentTime !== lastTime) {
           lastTime = el.currentTime;
           progressAt = now;
-        } else if (now - progressAt > 8000) return reject(new Error('Video playback stalled'));
+          nudged = false;
+        } else {
+          // 从网站下载的片段多等一会儿；卡住了先推一下，真不动了才放弃
+          if (now - progressAt > (this.meta.remote ? 15000 : 8000)) return reject(new Error('Video playback stalled'));
+          if (now - progressAt > 2500 && !nudged) {
+            nudged = true;
+            el.play()?.catch(() => {});
+          }
+        }
         lastCheck = now;
         requestAnimationFrame(check);
       };
@@ -254,6 +281,7 @@ export class Cutscenes {
       await this.until(this.xf, token);
       await this.cut('idle_' + this.opp, { loop: true, token });
       this.scheduleAct();
+      this.warm(this.opp);
       return true;
     } catch (e) {
       if (e instanceof Cancelled) return false;
@@ -339,6 +367,7 @@ export class Cutscenes {
     for (const v of this.vids) if (v !== this.cur) this.fadeEl(v, 0, 0);
     this.opp = this.want = opp;
     this.scheduleAct();
+    this.warm(opp);
   }
 
   // ---------- 选对手 ----------
@@ -363,6 +392,7 @@ export class Cutscenes {
         if (this.want !== y) continue;
         await this.cut('idle_' + y, { loop: true, token });
         this.scheduleAct();
+        this.warm(y);
       }
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;

@@ -1,6 +1,8 @@
 // 对手的台词：四个人说话各有各的味道。事件：
 // start 开局、oppBig 自己掷出大分、oppBust 自己爆骰、oppHot 自己全骰得分、youBig 你掷出大分、youBust 你爆骰、youHot 你全骰得分、
 // youBank 你一把收了很多、win 赢了你、lose 输给你、slow 你想太久、poke 你动了他的钱、late 深夜开局
+import { JA } from '../lang/ja.js';
+
 const LINES = {
   barmaid: {
     zh: {
@@ -8,7 +10,7 @@ const LINES = {
       oppBig: ['哎呀，今天手气不错！', '这把算我的小费。'],
       oppBust: ['唉，白忙活。', '看来还是端盘子靠谱。'],
       oppHot: ['六枚全中？这下能跟老板要涨工钱了！'],
-      youBig: ['哇，你这手是喝了什么？', '好手气，要不要再来一杯？'],
+      youBig: ['哇，你这是喝了什么灵药？', '好手气，要不要再来一杯？'],
       youBust: ['贪心的客人我见多了。', '别难过，酒钱照付就行。'],
       youHot: ['全中！隔壁桌都在看你呢。'],
       youBank: ['见好就收，是个聪明人。'],
@@ -19,24 +21,24 @@ const LINES = {
       late: ['都这个点了，你还不回家呀？'],
     },
     en: {
-      start: ['Just a couple of rounds, the tables are waiting.', "Dice are lighter than a tray. Don't be nervous.", 'And no running out on your debts.'],
-      oppBig: ['Oh my, lucky me!', "I'll call that my tip."],
+      start: ['Just a couple of rounds — the tables are waiting.', "Dice are lighter than a tray. Don’t be nervous.", 'And no running out on your debts.'],
+      oppBig: ['Oh my, lucky me!', "I’ll call that my tip."],
       oppBust: ['All that for nothing.', 'Back to carrying plates, then.'],
       oppHot: ['All six? I should ask for a raise!'],
       youBig: ['Goodness, what have you been drinking?', 'Lucky hand. Another round?'],
-      youBust: ["I've seen plenty of greedy guests.", "Cheer up, you still owe for the ale."],
+      youBust: ["I’ve seen plenty of greedy guests.", "Cheer up, you still owe for the ale."],
       youHot: ['All six! The next table is staring.'],
-      youBank: ['Quit while ahead. Smart guest.'],
+      youBank: ["Quitting while you’re ahead. Smart guest."],
       win: ['Thanks for the game. Mind the tip.'],
       lose: ['You got me. This one is on the house.'],
       slow: ['Take your time… I only have three tables waiting.'],
-      poke: ['Hey! That is my tip money!'],
-      late: ["At this hour? Don't you have a home to go to?"],
+      poke: ["Hey! That’s my tip money!"],
+      late: ["At this hour? Don’t you have a home to go to?"],
     },
   },
   drinker: {
     zh: {
-      start: ['先干为敬！嗝……开始吧。', '我的手可比我的酒量稳。', '来，赢的那个请客。'],
+      start: ['先干为敬！嗝……开始吧。', '我的手可比我的酒量稳。', '来，输的那个请客。'],
       oppBig: ['哈！这才叫手气！', '敬这一把！'],
       oppBust: ['该死……都怪这杯酒。', '骰子也喝多了。'],
       oppHot: ['全中！再来一大杯！'],
@@ -51,8 +53,8 @@ const LINES = {
       late: ['天亮之前，我们还能喝三轮。'],
     },
     en: {
-      start: ['Bottoms up! Hic… let us begin.', 'My hands are steadier than my head.', "Loser buys the next round."],
-      oppBig: ['Ha! Now that is a throw!', 'Here is to that one!'],
+      start: ["Bottoms up! Hic… let’s begin.", 'My hands are steadier than my head.', "Loser buys the next round."],
+      oppBig: ["Ha! Now that’s a throw!", "Here’s to that one!"],
       oppBust: ['Curses… it was the ale.', 'Even the dice are drunk.'],
       oppHot: ['All six! Bring me a bigger mug!'],
       youBig: ['Not bad, friend!', 'I need a sip after that.'],
@@ -60,9 +62,9 @@ const LINES = {
       youHot: ['Devil take it, did you grease those dice?'],
       youBank: ['Running away, are we?'],
       win: ['This round is on you!'],
-      lose: ['Does not count, I am drunk… fine, you win.'],
+      lose: ["Doesn’t count, I’m drunk… fine, you win."],
       slow: ['Throw already, my mug is nearly empty.'],
-      poke: ['Hands off! That is ale money!'],
+      poke: ["Hands off! That’s ale money!"],
       late: ['Three more rounds before sunrise.'],
     },
   },
@@ -86,7 +88,7 @@ const LINES = {
       start: ['Dice care nothing for your face, young one.', 'The old rules. No hurry.', 'Sit. This table is older than us both.'],
       oppBig: ['Steady hands beat clever heads.', 'That is called experience.'],
       oppBust: ['Hm. Old bones slip too.', 'A small thing. It passes.'],
-      oppHot: ['Sixty years, and the hand is not rusty.'],
+      oppHot: ['Sixty years, and this hand is not rusty yet.'],
       youBig: ['That throw… reminds me of my youth.', 'Not bad. Do not smile too soon.'],
       youBust: ['You did not stop when you should have. Dice are fair.', 'Greed cuts its own purse.'],
       youHot: ['Hmph. Luck… though good luck, I admit.'],
@@ -118,11 +120,11 @@ const LINES = {
       start: ['So you want to beat me? How amusing.', 'I never lose. Tonight is no exception.', 'Relax. This will not take long.'],
       oppBig: ['Watch closely. That is how it is done.', 'Forgive me, force of habit.'],
       oppBust: ['…That one does not count.', 'The dice are moody tonight.'],
-      oppHot: ['All six? A normal day for me.'],
+      oppHot: ['All six? Just another night for me.'],
       youBig: ['Oh? Finally taking this seriously.', 'Lucky. How long will it last?'],
       youBust: ['That is the price of playing me.', 'I did warn you.'],
       youHot: ['Interesting. I am starting to like you.'],
-      youBank: ['Careful little thing, are you not?'],
+      youBank: ['Cautious, are you not?'],
       win: ['You were good. You just met me.'],
       lose: ['…No one has ever beaten me. What is your name?'],
       slow: ['Take your time. The ending will not change.'],
@@ -131,6 +133,9 @@ const LINES = {
     },
   },
 };
+
+// 日文台词在 lang/ja.js
+for (const opp of Object.keys(LINES)) LINES[opp].ja = JA.lines[opp];
 
 export function lineFor(opp, event, lang) {
   const list = LINES[opp]?.[lang]?.[event];

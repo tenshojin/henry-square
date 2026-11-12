@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { COIN_STACKS, LOOSE_COINS, PURSES, CANDLE, MUG } from './coinLayout.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { loadGLB, assetBuffer, assetJSON } from './assets.js';
-import { LITE } from './device.js';
+import { LITE, TABLE_ONLY } from './device.js';
 import { createHearthFire, makeCandleFlameMaterial, createDust, createCandle, softDot } from './fire.js';
 import { canvasTexture, leatherTexture } from './canvasTex.js';
 import { beamWood, pbr } from './ptex.js';
@@ -231,10 +231,15 @@ async function loadProbe(renderer, scene) {
   tex.flipY = true;
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.needsUpdate = true;
-  const pm = new THREE.PMREMGenerator(renderer);
-  scene.environment = pm.fromEquirectangular(tex).texture;
-  pm.dispose();
-  tex.dispose();
+  const bake = () => {
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromEquirectangular(tex).texture;
+    pm.dispose();
+    tex.dispose();
+  };
+  bake();
+  // 环境反射是显卡算出来的，手机锁屏回来显卡内容丢了要重算（普通贴图 three 会自己重新上传），不然金属全是黑的
+  renderer.domElement.addEventListener('webglcontextrestored', bake);
 }
 
 export async function buildWorld(scene, renderer, { camera } = {}) {
@@ -246,7 +251,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   const meta = assetJSON('tavern-meta') || { k: 0.25 };
   const lm = { uLM: { value: meta.k * 0.86 } }; // v3.4 从 1.35 调暗（桌面木头太红太亮；第二轮 1.08 → 0.86）
   // 实时画面只看得到牌桌：手机上别的部分（墙、吧台、壁炉……十来张 2048 的大贴图）一概不装，不然内存超了页面会被系统杀掉
-  const gltf = await loadGLB('tavern', LITE ? { drop: (n) => /^B_/.test(n) && !/^B_(table|tabletop|tableprops)$/.test(n) } : {});
+  const gltf = await loadGLB('tavern', TABLE_ONLY ? { drop: (n) => /^B_/.test(n) && !/^B_(table|tabletop|tableprops)$/.test(n) } : {});
   const root = gltf.scene;
   root.scale.setScalar(UNIT);
   root.position.y = FLOOR_Y;
@@ -277,7 +282,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
   // ---------- 会动的火 ----------
   const flames = [];
   for (const [name, m] of Object.entries(markers)) {
-    if (name.startsWith('FX_candle') && !LITE) {
+    if (name.startsWith('FX_candle') && !TABLE_ONLY) {
       const mat = makeCandleFlameMaterial(flames.length * 1.7);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 1.7), mat);
       f.position.copy(at(m)).add(new THREE.Vector3(0, 0.6, 0));
@@ -294,7 +299,7 @@ export async function buildWorld(scene, renderer, { camera } = {}) {
     }
   });
   if (markers.FX_hearth) {
-    if (!LITE) {
+    if (!TABLE_ONLY) {
       const fire = createHearthFire(30, 26);
       fire.position.copy(at(markers.FX_hearth));
       fire.rotation.y = -Math.PI / 2;

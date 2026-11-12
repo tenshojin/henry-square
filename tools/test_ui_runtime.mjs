@@ -103,19 +103,21 @@ test('adaptive quality remains lowered after resize on a high-DPR display', () =
   stage.resize();
   assert.equal(stage.renderer.getPixelRatio(), 1);
 });
-test('portrait projection keeps dice rows and the neutral coin inside the viewport', () => {
-  for (const [w, h] of [[320, 568], [390, 844], [768, 1024], [1440, 900]]) {
+test('every screen keeps the dice rows inside the viewport; wide screens also keep the neutral coin', () => {
+  for (const [w, h] of [[320, 568], [390, 844], [768, 1024], [844, 390], [1024, 768], [1440, 900], [1920, 1080]]) {
     const stage = stageFixture(w, h);
     const c = stage.camera;
-    c.fov = stage.fovFor(GAME_CAM.fov);
-    c.position.copy(GAME_CAM.pos);
-    c.lookAt(GAME_CAM.look);
+    c.fov = stage.fovFor();
+    c.position.copy(stage.view.pos);
+    c.lookAt(stage.view.look);
     c.updateProjectionMatrix();
     c.updateMatrixWorld();
     for (const x of [-11.1, 11.1]) for (const z of [-3.5, 4.8]) {
       const p = new THREE.Vector3(x, 0.5, z).project(c);
       assert.ok(Math.abs(p.x) < 1, `${w}x${h}: side row clipped at ${p.x}`);
     }
+    // 手机上为了把骰盘放大，桌角那枚定先手的币可以出画（它只是摆设，先手写在记分牌上）
+    if (stage.layout) continue;
     for (const wobble of [-.25, .25]) {
       c.position.x = wobble;
       c.lookAt(GAME_CAM.look);
@@ -137,11 +139,12 @@ test('both players get the correct score moment at bust, 1000 and 2000, without 
     [[1, 1, 1, 1], 2000, 'high'],
   ]) {
     const moments = [], sounds = [], delays = [];
-    const dice = values.map(value => ({ value, typeId: 'normal', isJoker: false }));
+    const dice = values.map(value => ({ value, typeId: 'normal', isJoker: false, group: { position: new THREE.Vector3() } }));
     const players = [0, 1].map(idx => ({ idx, score: 0, kept: 0, dice: idx === pi ? dice : [] }));
     const choice = async () => ({ mask: (1 << dice.length) - 1, bank: true });
     const game = Object.assign(Object.create(Game.prototype), {
       players, target: 99999,
+      stage: { lookAtPoints() {} },
       ui: { banner() {}, renderHud() {}, updateHud: p => p.onRoll?.(), scoreMoment: (...args) => moments.push(args) },
       audio: { groan: () => sounds.push('groan'), sting() {}, cheer: big => sounds.push(big ? 'big-cheer' : 'cheer'), coins() {} },
       wait: async s => delays.push(s), throwDice: async () => {}, moveToRow: async () => {},

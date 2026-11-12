@@ -6,6 +6,7 @@ import { decide } from './ai.js';
 import { Die3D } from '../render/diceModel.js';
 import { createCup } from '../render/cup.js';
 import { CoinToss } from '../render/coinToss.js';
+import { keepAwake } from '../render/device.js';
 import { CoinField } from '../render/coinField.js';
 import { TableFX } from '../render/fx.js';
 import { G_R, G_REST, G_STEP, COIN_METALS } from '../render/groschen.js';
@@ -96,6 +97,9 @@ export class Game {
     stage.add((dt, t) => {
       for (const d of this.dice) d.update(dt, t);
       this.updateTime();
+      // 等玩家操作的时候画面几乎不动：手机上少画一半的帧，省电也少发烫
+      const mode = this.ui.hudState?.mode;
+      stage.calm = mode === 'roll' || mode === 'choose';
     });
     this.bindInput();
   }
@@ -115,7 +119,7 @@ export class Game {
         } else {
           const extra = [t.faceNow(t.face(die.value, die.isJoker))];
           if (die.isJoker) extra.push(t.jokerTip);
-          this.ui.showTip(die.typeId, e.clientX, e.clientY, extra.join('<br>'));
+          this.ui.showTip(die.typeId, e.clientX, e.clientY, extra.map((x) => `<div>${x}</div>`).join(''));
         }
       } else if (hoverDie) this.ui.hideTip();
       // 可选骰子的悬停光圈
@@ -128,7 +132,9 @@ export class Game {
     canvas.addEventListener('click', (e) => {
       if (!this.selectable || this.ui.modalOpen) return;
       const hit = this.stage.pick(this.selectable.map((d) => d.mesh), e.clientX, e.clientY);
-      const die = hit ? hit.object.userData.die : null;
+      let die = hit ? hit.object.userData.die : null;
+      // 手指比鼠标粗：没正好点中就算离得最近的一颗
+      if (!die && e.pointerType !== 'mouse') die = this.nearestDie(e.clientX, e.clientY, 34);
       if (die && this.onDieClick) this.onDieClick(die);
     });
     // 对手回合：按住空格或按住桌面，时间走快一点
@@ -266,6 +272,7 @@ export class Game {
   // 选对手的菜单是贴在画面下方的一条，上面露出对面坐着的人；点难度卡片，原来的人起身离开、新的人走过来坐下（过场动画）。
   // 从牌桌回来时先抬头看向对面
   openMenu() {
+    keepAwake(false);
     this.ui.showMenu((diff) => this.startMatch(diff), this.difficulty, TARGETS, (diff) => this.setOpponent(diff));
     return this.leaveTable();
   }
@@ -329,7 +336,8 @@ export class Game {
     this.atTable = false;
     return this.queueTableTransition(async () => {
       if (cs !== this.cutscenes) return;
-      await this.easeLiveCam(0, 0.3);
+      // 手机上的机位离视频的机位远，慢一点才不会猛地一晃
+      await this.easeLiveCam(0, this.stage.layout ? 0.6 : 0.3);
       try { await cs.fromTable(); }
       catch (error) { this.disableCutscenes(error); }
       // Remove victory coins after the video covers the table.
@@ -357,6 +365,7 @@ export class Game {
     if (this.cancelWait) this.cancelWait(new Cancelled());
     this.cancelWait = null;
     this.selectable = null;
+    this.stage.lookAtPoints(null);
     this.toss?.stop();
     this.cups.forEach((c, i) => {
       c.position.copy(this.cupRest[i]);
@@ -404,6 +413,7 @@ export class Game {
   }
 
   async startMatch(diff) {
+    keepAwake(true);
     this.cancelMatch();
     this.starting = true;
     const id = this.matchId;
@@ -550,6 +560,8 @@ export class Game {
 
       if (pi === 0 && this.tavern && !this.tavern.candle.lit) this.award('darkness');
       await this.throwDice(P, pool, id);
+      // 小屏幕上镜头凑近这几颗骰子，看清点数；摆回去、再掷的时候退回来
+      this.stage.lookAtPoints(pool.map((d) => d.group.position.clone()));
       const rolled = pool.map((d) => ({ value: d.value, joker: d.isJoker, type: d.typeId }));
       const vals = rolled.map((r) => [r.value, r.joker]);
       this.log((tt) => tt.logRoll(tt.who(pi), vals.map(([v, j]) => tt.face(v, j)).join('\u2002')));
@@ -766,8 +778,23 @@ export class Game {
     return dec;
   }
 
+  nearestDie(x, y, radius) {
+    let best = null;
+    let bestD = radius;
+    for (const d of this.selectable) {
+      const p = this.stage.toScreen(d.group.position);
+      const dist = Math.hypot(p.x - x, p.y - y);
+      if (dist < bestD) {
+        best = d;
+        bestD = dist;
+      }
+    }
+    return best;
+  }
+
   // ---------- 动画 ----------
   async moveToRow(P, dice, id) {
+    this.stage.lookAtPoints(null);
     const jobs = dice.map((d, k) => {
       const slot = P.kept++;
       const target = this.rowPos(P.idx, slot);
@@ -793,6 +820,7 @@ export class Game {
 
   // 掷骰：举起空骰盅 → 骰子一颗颗落进去 → 在盅里翻滚（看得见）→ 倒进骰盘 → 骰盅放回
   async throwDice(P, pool, id) {
+    this.stage.lookAtPoints(null);
     const pi = P.idx;
     const s = pi === 0 ? 1 : -1;
     const cup = this.cups[pi];
@@ -984,6 +1012,7 @@ export class Game {
 
   // ---------- 结算 ----------
   async finish(humanWon, id) {
+    this.stage.lookAtPoints(null);
     const t = i18n.t;
     this.ui.updateHud({ mode: null, selection: null, status: null });
     if (humanWon) {
